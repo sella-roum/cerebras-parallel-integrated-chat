@@ -20,6 +20,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { useToast } from "@/hooks/use-toast";
 
 interface ConversationSidebarProps {
   isDark: boolean;
@@ -48,6 +49,7 @@ export function ConversationSidebar({
   const [editingTitle, setEditingTitle] = useState<string>("");
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const cancelRenameRef = useRef(false);
+  const { toast } = useToast();
 
   const handleDeleteClick = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -76,11 +78,24 @@ export function ConversationSidebar({
       return;
     }
 
-    if (!editingId || editingTitle.trim() === "") {
+    if (!editingId) {
       setEditingId(null);
       setEditingTitle("");
       return;
     }
+
+    if (editingTitle.trim() === "") {
+      toast({
+        title: "タイトルは空にできません",
+        variant: "destructive",
+        duration: 3000,
+      });
+      // 編集モードを終了し、元のタイトルに戻す
+      setEditingId(null);
+      setEditingTitle("");
+      return;
+    }
+
     onUpdateConversationTitle(editingId, editingTitle.trim());
     cancelRenameRef.current = false;
     setEditingId(null);
