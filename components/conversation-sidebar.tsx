@@ -146,6 +146,7 @@ export function ConversationSidebar({
                   }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
                       if (editingId !== conversation.id) {
                         setSelectedConversation(conversation.id);
                       }
