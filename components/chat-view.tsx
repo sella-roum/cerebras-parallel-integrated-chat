@@ -1,24 +1,24 @@
-"use client"
+"use client";
 
-import type React from "react"
-import { useState, useRef, useEffect } from "react"
-import { Button } from "@/components/ui/button"
-import { Textarea } from "@/components/ui/textarea"
-import { Menu, Settings, Send, Bot, Copy, RefreshCw, Loader2, ChevronDown } from "lucide-react"
-import { useMobile } from "@/hooks/use-mobile"
-import { cn } from "@/lib/utils"
-import { db, type Message } from "@/lib/db"
-import { llmService } from "@/lib/llm-service"
-import { useToast } from "@/hooks/use-toast"
-import { MarkdownRenderer } from "./markdown-renderer"
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import type React from "react";
+import { useState, useRef, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Menu, Settings, Send, Bot, Copy, RefreshCw, Loader2, ChevronDown } from "lucide-react";
+import { useMobile } from "@/hooks/use-mobile";
+import { cn } from "@/lib/utils";
+import { db, type Message } from "@/lib/db";
+import { llmService } from "@/lib/llm-service";
+import { useToast } from "@/hooks/use-toast";
+import { MarkdownRenderer } from "./markdown-renderer";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 interface ChatViewProps {
-  selectedConversation: string | null
-  onOpenSidebar: () => void
-  onOpenSettings: () => void
-  onUpdateConversationTitle: (id: string, title: string) => void
-  onNewConversation: () => void
+  selectedConversation: string | null;
+  onOpenSidebar: () => void;
+  onOpenSettings: () => void;
+  onUpdateConversationTitle: (id: string, title: string) => void;
+  onNewConversation: () => void;
 }
 
 export function ChatView({
@@ -28,51 +28,51 @@ export function ChatView({
   onUpdateConversationTitle,
   onNewConversation,
 }: ChatViewProps) {
-  const [messages, setMessages] = useState<Message[]>([])
-  const [input, setInput] = useState("")
-  const [isLoading, setIsLoading] = useState(false)
-  const [hoveredMessageId, setHoveredMessageId] = useState<string | null>(null)
-  const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set())
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-  const isMobile = useMobile()
-  const { toast } = useToast()
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [hoveredMessageId, setHoveredMessageId] = useState<string | null>(null);
+  const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set());
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const isMobile = useMobile();
+  const { toast } = useToast();
 
   useEffect(() => {
     if (selectedConversation) {
-      loadMessages()
+      loadMessages();
     } else {
-      setMessages([])
+      setMessages([]);
     }
-  }, [selectedConversation])
+  }, [selectedConversation]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages])
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   const loadMessages = async () => {
-    if (!selectedConversation) return
+    if (!selectedConversation) return;
     try {
-      const loadedMessages = await db.getMessages(selectedConversation)
-      setMessages(loadedMessages)
-      console.log("[v0] Loaded messages:", loadedMessages.length)
+      const loadedMessages = await db.getMessages(selectedConversation);
+      setMessages(loadedMessages);
+      console.log("[v0] Loaded messages:", loadedMessages.length);
     } catch (error) {
-      console.error("[v0] Failed to load messages:", error)
+      console.error("[v0] Failed to load messages:", error);
       toast({
         title: "メッセージの読み込みに失敗しました",
         variant: "destructive",
-      })
+      });
     }
-  }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!input.trim() || isLoading) return
+    e.preventDefault();
+    if (!input.trim() || isLoading) return;
 
-    const conversationId = selectedConversation
+    const conversationId = selectedConversation;
     if (!conversationId) {
-      await onNewConversation()
-      return
+      await onNewConversation();
+      return;
     }
 
     const userMessage: Message = {
@@ -81,29 +81,29 @@ export function ChatView({
       content: input,
       timestamp: Date.now(),
       conversationId,
-    }
+    };
 
     try {
-      await db.addMessage(userMessage)
-      setMessages([...messages, userMessage])
-      setInput("")
-      setIsLoading(true)
+      await db.addMessage(userMessage);
+      setMessages([...messages, userMessage]);
+      setInput("");
+      setIsLoading(true);
 
       if (messages.length === 0) {
-        const title = input.slice(0, 30) + (input.length > 30 ? "..." : "")
-        onUpdateConversationTitle(conversationId, title)
+        const title = input.slice(0, 30) + (input.length > 30 ? "..." : "");
+        onUpdateConversationTitle(conversationId, title);
       }
 
-      const modelSettings = await db.getModelSettings()
-      const appSettings = await db.getAppSettings()
+      const modelSettings = await db.getModelSettings();
+      const appSettings = await db.getAppSettings();
 
-      console.log("[v0] Calling LLM service with settings:", { modelSettings, appSettings })
+      console.log("[v0] Calling LLM service with settings:", { modelSettings, appSettings });
 
       const { content, modelResponses } = await llmService.generateResponseWithDetails(
         [...messages, userMessage],
         modelSettings,
         appSettings || {},
-      )
+      );
 
       const assistantMessage: Message = {
         id: `msg_${Date.now() + 1}`,
@@ -112,46 +112,46 @@ export function ChatView({
         timestamp: Date.now(),
         conversationId,
         modelResponses,
-      }
+      };
 
-      await db.addMessage(assistantMessage)
-      setMessages((prev) => [...prev, assistantMessage])
-      console.log("[v0] Response saved successfully")
+      await db.addMessage(assistantMessage);
+      setMessages((prev) => [...prev, assistantMessage]);
+      console.log("[v0] Response saved successfully");
     } catch (error) {
-      console.error("[v0] Failed to generate response:", error)
+      console.error("[v0] Failed to generate response:", error);
       toast({
         title: "応答の生成に失敗しました",
         description: error instanceof Error ? error.message : "エラーが発生しました",
         variant: "destructive",
-      })
+      });
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }
+  };
 
   const handleCopy = (content: string) => {
-    navigator.clipboard.writeText(content)
+    navigator.clipboard.writeText(content);
     toast({
       title: "コピーしました",
       duration: 2000,
-    })
-  }
+    });
+  };
 
   const handleRegenerate = async (messageId: string) => {
-    console.log("Regenerate:", messageId)
-  }
+    console.log("Regenerate:", messageId);
+  };
 
   const toggleExpanded = (messageId: string) => {
     setExpandedMessages((prev) => {
-      const next = new Set(prev)
+      const next = new Set(prev);
       if (next.has(messageId)) {
-        next.delete(messageId)
+        next.delete(messageId);
       } else {
-        next.add(messageId)
+        next.add(messageId);
       }
-      return next
-    })
-  }
+      return next;
+    });
+  };
 
   return (
     <div className="flex-1 flex flex-col h-full">
@@ -272,8 +272,8 @@ export function ChatView({
             rows={1}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault()
-                handleSubmit(e)
+                e.preventDefault();
+                handleSubmit(e);
               }
             }}
           />
@@ -289,5 +289,5 @@ export function ChatView({
         </form>
       </div>
     </div>
-  )
+  );
 }

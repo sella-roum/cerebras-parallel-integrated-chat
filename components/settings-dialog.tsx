@@ -1,18 +1,18 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ApiDataTab } from "@/components/settings/api-data-tab"
-import { ModelSettingsTab } from "@/components/settings/model-settings-tab"
+import { useState } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ApiDataTab } from "@/components/settings/api-data-tab";
+import { ModelSettingsTab } from "@/components/settings/model-settings-tab";
 
 interface SettingsDialogProps {
-  open: boolean
-  onOpenChange: (open: boolean) => void
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }
 
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
-  const [activeTab, setActiveTab] = useState("api")
+  const [activeTab, setActiveTab] = useState("api");
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -39,5 +39,5 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         </Tabs>
       </DialogContent>
     </Dialog>
-  )
+  );
 }

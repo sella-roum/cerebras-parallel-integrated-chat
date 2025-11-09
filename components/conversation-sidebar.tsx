@@ -1,21 +1,21 @@
-"use client"
+"use client";
 
-import type React from "react"
-import { useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Plus, Pencil, Trash2, Sun, Moon } from "lucide-react"
-import { cn } from "@/lib/utils"
-import type { Conversation } from "@/lib/db"
+import type React from "react";
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Plus, Pencil, Trash2, Sun, Moon } from "lucide-react";
+import { cn } from "@/lib/utils";
+import type { Conversation } from "@/lib/db";
 
 interface ConversationSidebarProps {
-  isDark: boolean
-  toggleDarkMode: () => void
-  selectedConversation: string | null
-  setSelectedConversation: (id: string) => void
-  conversations: Conversation[]
-  onNewConversation: () => void
-  onDeleteConversation: (id: string) => void
+  isDark: boolean;
+  toggleDarkMode: () => void;
+  selectedConversation: string | null;
+  setSelectedConversation: (id: string) => void;
+  conversations: Conversation[];
+  onNewConversation: () => void;
+  onDeleteConversation: (id: string) => void;
 }
 
 export function ConversationSidebar({
@@ -27,18 +27,18 @@ export function ConversationSidebar({
   onNewConversation,
   onDeleteConversation,
 }: ConversationSidebarProps) {
-  const [hoveredId, setHoveredId] = useState<string | null>(null)
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
 
   const handleDelete = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation()
-    onDeleteConversation(id)
-  }
+    e.stopPropagation();
+    onDeleteConversation(id);
+  };
 
   const handleRename = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation()
+    e.stopPropagation();
     // 名称変更ロジック（実装省略）
-    console.log("Rename:", id)
-  }
+    console.log("Rename:", id);
+  };
 
   return (
     <div className="w-[280px] h-full flex flex-col bg-sidebar border-r border-sidebar-border">
@@ -119,5 +119,5 @@ export function ConversationSidebar({
         </Button>
       </div>
     </div>
-  )
+  );
 }

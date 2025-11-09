@@ -1,43 +1,43 @@
-"use client"
+"use client";
 
-import { useState, useEffect } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Slider } from "@/components/ui/slider"
-import { db } from "@/lib/db"
+import { useState, useEffect } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Slider } from "@/components/ui/slider";
+import { db } from "@/lib/db";
 
 export function SummarizerModel() {
-  const [modelName, setModelName] = useState("zai-glm-4.6")
-  const [temperature, setTemperature] = useState(0.3)
-  const [maxTokens, setMaxTokens] = useState(500)
+  const [modelName, setModelName] = useState("zai-glm-4.6");
+  const [temperature, setTemperature] = useState(0.3);
+  const [maxTokens, setMaxTokens] = useState(500);
 
   useEffect(() => {
-    loadSettings()
-  }, [])
+    loadSettings();
+  }, []);
 
   const loadSettings = async () => {
     try {
-      const settings = await db.getAppSettings()
+      const settings = await db.getAppSettings();
       if (settings?.summarizerModel) {
-        setModelName(settings.summarizerModel.modelName)
-        setTemperature(settings.summarizerModel.temperature)
-        setMaxTokens(settings.summarizerModel.maxTokens)
+        setModelName(settings.summarizerModel.modelName);
+        setTemperature(settings.summarizerModel.temperature);
+        setMaxTokens(settings.summarizerModel.maxTokens);
       }
     } catch (error) {
-      console.error("[v0] Failed to load summarizer settings:", error)
+      console.error("[v0] Failed to load summarizer settings:", error);
     }
-  }
+  };
 
   useEffect(() => {
     if (modelName) {
-      saveSettings()
+      saveSettings();
     }
-  }, [modelName, temperature, maxTokens])
+  }, [modelName, temperature, maxTokens]);
 
   const saveSettings = async () => {
     try {
-      const currentSettings = await db.getAppSettings()
+      const currentSettings = await db.getAppSettings();
       await db.saveAppSettings({
         ...currentSettings,
         summarizerModel: {
@@ -46,12 +46,12 @@ export function SummarizerModel() {
           temperature,
           maxTokens,
         },
-      })
-      console.log("[v0] Summarizer settings saved")
+      });
+      console.log("[v0] Summarizer settings saved");
     } catch (error) {
-      console.error("[v0] Failed to save summarizer settings:", error)
+      console.error("[v0] Failed to save summarizer settings:", error);
     }
-  }
+  };
 
   return (
     <Card>
@@ -93,5 +93,5 @@ export function SummarizerModel() {
         </div>
       </CardContent>
     </Card>
-  )
+  );
 }

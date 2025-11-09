@@ -1,43 +1,43 @@
-"use client"
+"use client";
 
-import { useState, useEffect } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Slider } from "@/components/ui/slider"
-import { db } from "@/lib/db"
+import { useState, useEffect } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Slider } from "@/components/ui/slider";
+import { db } from "@/lib/db";
 
 export function IntegratorModel() {
-  const [modelName, setModelName] = useState("zai-glm-4.6")
-  const [temperature, setTemperature] = useState(0.5)
-  const [maxTokens, setMaxTokens] = useState(2000)
+  const [modelName, setModelName] = useState("zai-glm-4.6");
+  const [temperature, setTemperature] = useState(0.5);
+  const [maxTokens, setMaxTokens] = useState(2000);
 
   useEffect(() => {
-    loadSettings()
-  }, [])
+    loadSettings();
+  }, []);
 
   const loadSettings = async () => {
     try {
-      const settings = await db.getAppSettings()
+      const settings = await db.getAppSettings();
       if (settings?.integratorModel) {
-        setModelName(settings.integratorModel.modelName)
-        setTemperature(settings.integratorModel.temperature)
-        setMaxTokens(settings.integratorModel.maxTokens)
+        setModelName(settings.integratorModel.modelName);
+        setTemperature(settings.integratorModel.temperature);
+        setMaxTokens(settings.integratorModel.maxTokens);
       }
     } catch (error) {
-      console.error("[v0] Failed to load integrator settings:", error)
+      console.error("[v0] Failed to load integrator settings:", error);
     }
-  }
+  };
 
   useEffect(() => {
     if (modelName) {
-      saveSettings()
+      saveSettings();
     }
-  }, [modelName, temperature, maxTokens])
+  }, [modelName, temperature, maxTokens]);
 
   const saveSettings = async () => {
     try {
-      const currentSettings = await db.getAppSettings()
+      const currentSettings = await db.getAppSettings();
       await db.saveAppSettings({
         ...currentSettings,
         integratorModel: {
@@ -46,12 +46,12 @@ export function IntegratorModel() {
           temperature,
           maxTokens,
         },
-      })
-      console.log("[v0] Integrator settings saved")
+      });
+      console.log("[v0] Integrator settings saved");
     } catch (error) {
-      console.error("[v0] Failed to save integrator settings:", error)
+      console.error("[v0] Failed to save integrator settings:", error);
     }
-  }
+  };
 
   return (
     <Card>
@@ -93,5 +93,5 @@ export function IntegratorModel() {
         </div>
       </CardContent>
     </Card>
-  )
+  );
 }

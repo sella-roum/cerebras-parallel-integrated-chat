@@ -1,10 +1,10 @@
-"use client"
+"use client";
 
-import { useState, useEffect } from "react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Eye, EyeOff } from "lucide-react"
+import { useState, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Eye, EyeOff } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -14,43 +14,43 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import { db, type ApiKey } from "@/lib/db"
-import { llmService } from "@/lib/llm-service"
-import { useToast } from "@/hooks/use-toast"
+} from "@/components/ui/alert-dialog";
+import { db, type ApiKey } from "@/lib/db";
+import { llmService } from "@/lib/llm-service";
+import { useToast } from "@/hooks/use-toast";
 
 export function ApiDataTab() {
-  const [apiKey, setApiKey] = useState<ApiKey | null>(null)
-  const [showApiKey, setShowApiKey] = useState(false)
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
-  const [newKey, setNewKey] = useState("")
-  const { toast } = useToast()
+  const [apiKey, setApiKey] = useState<ApiKey | null>(null);
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [newKey, setNewKey] = useState("");
+  const { toast } = useToast();
 
   useEffect(() => {
-    loadApiKey()
-  }, [])
+    loadApiKey();
+  }, []);
 
   const loadApiKey = async () => {
     try {
-      const keys = await db.getApiKeys()
-      const cerebrasKey = keys.find((k) => k.provider === "cerebras")
-      setApiKey(cerebrasKey || null)
+      const keys = await db.getApiKeys();
+      const cerebrasKey = keys.find((k) => k.provider === "cerebras");
+      setApiKey(cerebrasKey || null);
       if (cerebrasKey) {
-        llmService.setApiKey(cerebrasKey.key)
+        llmService.setApiKey(cerebrasKey.key);
       }
-      console.log("[v0] Loaded API key:", cerebrasKey ? "Found" : "Not found")
+      console.log("[v0] Loaded API key:", cerebrasKey ? "Found" : "Not found");
     } catch (error) {
-      console.error("[v0] Failed to load API key:", error)
+      console.error("[v0] Failed to load API key:", error);
     }
-  }
+  };
 
   const handleSaveApiKey = async () => {
     if (!newKey.trim()) {
       toast({
         title: "APIキーを入力してください",
         variant: "destructive",
-      })
-      return
+      });
+      return;
     }
 
     try {
@@ -58,91 +58,91 @@ export function ApiDataTab() {
         id: "cerebras_api_key",
         provider: "cerebras",
         key: newKey,
-      }
-      await db.saveApiKey(key)
-      llmService.setApiKey(newKey)
-      setApiKey(key)
-      setNewKey("")
+      };
+      await db.saveApiKey(key);
+      llmService.setApiKey(newKey);
+      setApiKey(key);
+      setNewKey("");
       toast({
         title: "APIキーを保存しました",
-      })
-      console.log("[v0] API key saved")
+      });
+      console.log("[v0] API key saved");
     } catch (error) {
-      console.error("[v0] Failed to save API key:", error)
+      console.error("[v0] Failed to save API key:", error);
       toast({
         title: "APIキーの保存に失敗しました",
         variant: "destructive",
-      })
+      });
     }
-  }
+  };
 
   const handleDeleteApiKey = async () => {
-    if (!apiKey) return
+    if (!apiKey) return;
 
     try {
-      await db.deleteApiKey(apiKey.id)
-      setApiKey(null)
-      setNewKey("")
+      await db.deleteApiKey(apiKey.id);
+      setApiKey(null);
+      setNewKey("");
       toast({
         title: "APIキーを削除しました",
-      })
+      });
     } catch (error) {
-      console.error("[v0] Failed to delete API key:", error)
+      console.error("[v0] Failed to delete API key:", error);
       toast({
         title: "APIキーの削除に失敗しました",
         variant: "destructive",
-      })
+      });
     }
-  }
+  };
 
   const handleExport = async () => {
     try {
-      const conversations = await db.getConversations()
+      const conversations = await db.getConversations();
       const allMessages = await Promise.all(
         conversations.map(async (conv) => ({
           conversation: conv,
           messages: await db.getMessages(conv.id),
         })),
-      )
+      );
 
-      const data = JSON.stringify(allMessages, null, 2)
-      const blob = new Blob([data], { type: "application/json" })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = `chat-history-${Date.now()}.json`
-      a.click()
-      URL.revokeObjectURL(url)
+      const data = JSON.stringify(allMessages, null, 2);
+      const blob = new Blob([data], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `chat-history-${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
 
       toast({
         title: "履歴をエクスポートしました",
-      })
+      });
     } catch (error) {
-      console.error("[v0] Failed to export:", error)
+      console.error("[v0] Failed to export:", error);
       toast({
         title: "エクスポートに失敗しました",
         variant: "destructive",
-      })
+      });
     }
-  }
+  };
 
   const handleDeleteAll = async () => {
     try {
-      const conversations = await db.getConversations()
-      await Promise.all(conversations.map((conv) => db.deleteConversation(conv.id)))
-      setShowDeleteDialog(false)
+      const conversations = await db.getConversations();
+      await Promise.all(conversations.map((conv) => db.deleteConversation(conv.id)));
+      setShowDeleteDialog(false);
       toast({
         title: "全会話を削除しました",
-      })
-      window.location.reload()
+      });
+      window.location.reload();
     } catch (error) {
-      console.error("[v0] Failed to delete all:", error)
+      console.error("[v0] Failed to delete all:", error);
       toast({
         title: "削除に失敗しました",
         variant: "destructive",
-      })
+      });
     }
-  }
+  };
 
   return (
     <div className="space-y-6">
@@ -228,5 +228,5 @@ export function ApiDataTab() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
-  )
+  );
 }
