@@ -6,21 +6,20 @@ import { ChatView } from "@/components/chat-view";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { useMobile } from "@/hooks/use-mobile";
 import { db, type Conversation } from "@/lib/db";
-import { llmService } from "@/lib/llm-service";
 
 export default function Home() {
   const [isDark, setIsDark] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [selectedConversation, setSelectedConversation] = useState<string | null>(null);
+  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const isMobile = useMobile();
 
+  const selectedConversationData = conversations.find((c) => c.id === selectedConversationId) || null;
+
   useEffect(() => {
-    // ダークモードの初期化
     const isDarkMode = document.documentElement.classList.contains("dark");
     setIsDark(isDarkMode);
-
     initializeApp();
   }, []);
 
@@ -29,16 +28,9 @@ export default function Home() {
       await db.init();
       const loadedConversations = await db.getConversations();
       setConversations(loadedConversations);
-
-      // APIキーを読み込み
-      const apiKeys = await db.getApiKeys();
-      apiKeys.forEach((key) => {
-        llmService.setApiKey(key.key);
-      });
-
-      console.log("[v0] App initialized");
+      console.log("App initialized");
     } catch (error) {
-      console.error("[v0] Failed to initialize app:", error);
+      console.error("Failed to initialize app:", error);
     }
   };
 
@@ -53,17 +45,18 @@ export default function Home() {
       title: "新規チャット",
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      systemPrompt: "",
     };
     await db.createConversation(newConversation);
     setConversations([newConversation, ...conversations]);
-    setSelectedConversation(newConversation.id);
+    setSelectedConversationId(newConversation.id);
   };
 
   const handleDeleteConversation = async (id: string) => {
     await db.deleteConversation(id);
     setConversations(conversations.filter((c) => c.id !== id));
-    if (selectedConversation === id) {
-      setSelectedConversation(null);
+    if (selectedConversationId === id) {
+      setSelectedConversationId(null);
     }
   };
 
@@ -76,18 +69,28 @@ export default function Home() {
     }
   };
 
+  const handleUpdateConversationSystemPrompt = async (id: string, systemPrompt: string) => {
+    const conversation = conversations.find((c) => c.id === id);
+    if (conversation) {
+      const updated = { ...conversation, systemPrompt, updatedAt: Date.now() };
+      await db.updateConversation(updated);
+      setConversations(conversations.map((c) => (c.id === id ? updated : c)));
+    }
+  };
+
   return (
     <div className="h-screen flex overflow-hidden bg-background">
-      {/* 左サイドバー */}
+      {/* 左サイドバー (デスクトップ用) */}
       {!isMobile && (
         <ConversationSidebar
           isDark={isDark}
           toggleDarkMode={toggleDarkMode}
-          selectedConversation={selectedConversation}
-          setSelectedConversation={setSelectedConversation}
+          selectedConversation={selectedConversationId}
+          setSelectedConversation={setSelectedConversationId}
           conversations={conversations}
           onNewConversation={handleNewConversation}
           onDeleteConversation={handleDeleteConversation}
+          onUpdateConversationTitle={handleUpdateConversationTitle} // <-- 1箇所目
         />
       )}
 
@@ -99,9 +102,9 @@ export default function Home() {
             <ConversationSidebar
               isDark={isDark}
               toggleDarkMode={toggleDarkMode}
-              selectedConversation={selectedConversation}
+              selectedConversation={selectedConversationId}
               setSelectedConversation={(id) => {
-                setSelectedConversation(id);
+                setSelectedConversationId(id);
                 setIsSidebarOpen(false);
               }}
               conversations={conversations}
@@ -110,6 +113,7 @@ export default function Home() {
                 setIsSidebarOpen(false);
               }}
               onDeleteConversation={handleDeleteConversation}
+              onUpdateConversationTitle={handleUpdateConversationTitle} // <-- ▼ 修正箇所 (2箇所目) ▼
             />
           </div>
         </>
@@ -117,11 +121,12 @@ export default function Home() {
 
       {/* メインチャットエリア */}
       <ChatView
-        selectedConversation={selectedConversation}
+        selectedConversationData={selectedConversationData}
         onOpenSidebar={() => setIsSidebarOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onUpdateConversationTitle={handleUpdateConversationTitle}
         onNewConversation={handleNewConversation}
+        onUpdateConversationSystemPrompt={handleUpdateConversationSystemPrompt}
       />
 
       {/* 設定モーダル */}
