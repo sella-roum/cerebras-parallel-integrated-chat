@@ -33,7 +33,7 @@ export default function Home() {
       // APIキーを読み込み
       const apiKeys = await db.getApiKeys()
       apiKeys.forEach((key) => {
-        llmService.setApiKey(key.provider, key.key)
+        llmService.setApiKey(key.key)
       })
 
       console.log("[v0] App initialized")
