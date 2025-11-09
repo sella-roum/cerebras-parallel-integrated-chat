@@ -20,13 +20,10 @@ export interface Conversation {
   title: string;
   createdAt: number;
   updatedAt: number;
+  systemPrompt?: string; // <-- フィールド追加
 }
 
-export interface ApiKey {
-  id: string;
-  provider: string;
-  key: string;
-}
+// ApiKey インターフェースは削除
 
 export interface ModelSettings {
   id: string;
@@ -53,7 +50,7 @@ export interface AppSettings {
 }
 
 const DB_NAME = "multi-llm-chat";
-const DB_VERSION = 1;
+const DB_VERSION = 1; // 既存のDBにカラムを追加する場合、バージョンを上げる必要があります
 
 class Database {
   private db: IDBDatabase | null = null;
@@ -82,10 +79,10 @@ class Database {
           messagesStore.createIndex("conversationId", "conversationId", { unique: false });
         }
 
-        // API Keys store
-        if (!db.objectStoreNames.contains("apiKeys")) {
-          db.createObjectStore("apiKeys", { keyPath: "id" });
-        }
+        // API Keys store (削除)
+        // if (db.objectStoreNames.contains("apiKeys")) {
+        //   db.deleteObjectStore("apiKeys");
+        // }
 
         // Model Settings store
         if (!db.objectStoreNames.contains("modelSettings")) {
@@ -189,42 +186,7 @@ class Database {
     });
   }
 
-  // API Keys
-  async getApiKeys(): Promise<ApiKey[]> {
-    if (!this.db) await this.init();
-    return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction(["apiKeys"], "readonly");
-      const store = transaction.objectStore("apiKeys");
-      const request = store.getAll();
-
-      request.onsuccess = () => resolve(request.result || []);
-      request.onerror = () => reject(request.error);
-    });
-  }
-
-  async saveApiKey(apiKey: ApiKey): Promise<void> {
-    if (!this.db) await this.init();
-    return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction(["apiKeys"], "readwrite");
-      const store = transaction.objectStore("apiKeys");
-      const request = store.put(apiKey);
-
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error);
-    });
-  }
-
-  async deleteApiKey(id: string): Promise<void> {
-    if (!this.db) await this.init();
-    return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction(["apiKeys"], "readwrite");
-      const store = transaction.objectStore("apiKeys");
-      const request = store.delete(id);
-
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error);
-    });
-  }
+  // API Keys (関連メソッドをすべて削除)
 
   // Model Settings
   async getModelSettings(): Promise<ModelSettings[]> {
@@ -285,6 +247,42 @@ class Database {
 
       request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * 特定のメッセージID以降のメッセージ（そのIDを含む）を
+   * 同じ会話IDからすべて削除します。
+   */
+  async deleteMessagesAfter(messageId: string, conversationId: string): Promise<void> {
+    if (!this.db) await this.init();
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(["messages"], "readwrite");
+      const store = transaction.objectStore("messages");
+      const index = store.index("conversationId");
+
+      let foundStart = false;
+      // 会話IDでカーソルを開く
+      const request = index.openCursor(IDBKeyRange.only(conversationId));
+
+      request.onsuccess = (event) => {
+        const cursor = (event.target as IDBRequest).result;
+        if (cursor) {
+          // メッセージIDが一致したら、それ以降の削除フラグを立てる
+          // (messageIdは 'msg_${Date.now()}' で時系列ソート可能)
+          if (cursor.primaryKey === messageId) {
+            foundStart = true;
+          }
+
+          if (foundStart) {
+            store.delete(cursor.primaryKey);
+          }
+          cursor.continue();
+        }
+      };
+
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
     });
   }
 }

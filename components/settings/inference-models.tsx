@@ -7,20 +7,29 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Accordion, AccordionContent, AccordionItem } from "@/components/ui/accordion";
 import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  // AccordionTrigger, // <-- カスタムするため、ここでは使わない
-} from "@/components/ui/accordion";
-import { Plus, Trash2, ChevronDownIcon } from "lucide-react"; // ChevronDownIcon をインポート
+  Plus,
+  Trash2,
+  ChevronDownIcon, // <button> ネスト修正用
+  Check, // ComboBox用
+  ChevronsUpDown, // ComboBox用
+} from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { db, type ModelSettings } from "@/lib/db";
 import { useToast } from "@/hooks/use-toast";
-import { cn } from "@/lib/utils"; // cn をインポート
+import { cn } from "@/lib/utils";
+
+// ComboBox (Popover + Command) に必要なコンポーネント
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+
+import { DEFAULT_CEREBRAS_MODELS } from "@/lib/constants";
 
 export function InferenceModels() {
   const [models, setModels] = useState<ModelSettings[]>([]);
+  // ComboBoxの開閉状態をモデルごとに管理
+  const [popoverOpen, setPopoverOpen] = useState<Record<string, boolean>>({});
   const { toast } = useToast();
 
   useEffect(() => {
@@ -30,10 +39,24 @@ export function InferenceModels() {
   const loadModels = async () => {
     try {
       const settings = await db.getModelSettings();
-      setModels(settings);
-      console.log("[v0] Loaded model settings:", settings.length);
+      // もし0件ならデフォルトを1件追加する
+      if (settings.length === 0) {
+        const newModel: ModelSettings = {
+          id: `model_${Date.now()}`,
+          provider: "cerebras",
+          modelName: "zai-glm-4.6",
+          temperature: 0.6,
+          maxTokens: 30000,
+          enabled: true,
+        };
+        await db.saveModelSettings(newModel);
+        setModels([newModel]);
+      } else {
+        setModels(settings);
+      }
+      console.log("Loaded model settings:", settings.length);
     } catch (error) {
-      console.error("[v0] Failed to load model settings:", error);
+      console.error("Failed to load model settings:", error);
     }
   };
 
@@ -43,21 +66,33 @@ export function InferenceModels() {
       provider: "cerebras",
       modelName: "zai-glm-4.6",
       temperature: 0.6,
-      maxTokens: 40960,
+      maxTokens: 30000,
       enabled: true,
     };
+    // DBにも保存
+    db.saveModelSettings(newModel);
     setModels([...models, newModel]);
   };
 
   const deleteModel = async (id: string) => {
+    // 既にUIで無効化されているはずだが、念のためロジック側でもチェック
+    if (models.length <= 1) {
+      toast({
+        title: "削除できません",
+        description: "最低1つの推論モデルが必要です。",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
       await db.deleteModelSettings(id);
       setModels(models.filter((m) => m.id !== id));
-      toast({
-        title: "モデルを削除しました",
-      });
+      // toast({
+      //   title: "モデルを削除しました",
+      // })
     } catch (error) {
-      console.error("[v0] Failed to delete model:", error);
+      console.error("Failed to delete model:", error);
       toast({
         title: "削除に失敗しました",
         variant: "destructive",
@@ -73,9 +108,9 @@ export function InferenceModels() {
     if (model) {
       try {
         await db.saveModelSettings(model);
-        console.log("[v0] Model settings saved:", id);
+        console.log("Model settings saved:", id);
       } catch (error) {
-        console.error("[v0] Failed to save model settings:", error);
+        console.error("Failed to save model settings:", error);
       }
     }
   };
@@ -89,26 +124,20 @@ export function InferenceModels() {
         <Accordion type="single" collapsible className="w-full">
           {models.map((model) => (
             <AccordionItem key={model.id} value={model.id}>
-              {/* AccordionTrigger (button) の中に Switch (button) が
-                ネストしないよう、プリミティブを使ってレイアウトを分離します。
-              */}
               <AccordionPrimitive.Header className="flex items-center justify-between w-full py-4 pr-4">
-                {/* 1. アコーディオンを開閉するトリガー（ボタン） */}
                 <AccordionPrimitive.Trigger
                   className={cn(
                     "focus-visible:border-ring focus-visible:ring-ring/50 flex flex-1 items-start gap-4 rounded-md py-0 text-left text-sm font-medium transition-all outline-none hover:underline focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 [&[data-state=open]>svg]:rotate-180",
-                    "hover:no-underline", // 元のスタイルを維持
+                    "hover:no-underline",
                   )}
                 >
-                  <span className="text-sm font-medium">{model.modelName || "新規モデル"}</span>
+                  <span className="text-sm font-medium">{model.modelName || ""}</span>
                   <ChevronDownIcon className="text-muted-foreground pointer-events-none size-4 shrink-0 translate-y-0.5 transition-transform duration-200" />
                 </AccordionPrimitive.Trigger>
 
-                {/* 2. トグルスイッチ（ボタン） - Triggerの「兄弟」要素として配置 */}
                 <Switch
                   checked={model.enabled}
                   onCheckedChange={(checked) => updateModel(model.id, "enabled", checked)}
-                  // onClick={(e) => e.stopPropagation()} <-- 兄弟要素になったため不要
                 />
               </AccordionPrimitive.Header>
 
@@ -116,15 +145,56 @@ export function InferenceModels() {
                 <div className="space-y-4 pt-4">
                   <div className="space-y-2">
                     <Label htmlFor={`model-name-${model.id}`}>モデル名</Label>
-                    <Input
-                      id={`model-name-${model.id}`}
-                      value={model.modelName}
-                      onChange={(e) => updateModel(model.id, "modelName", e.target.value)}
-                      placeholder="zai-glm-4.6"
-                      className="font-mono"
-                    />
+                    <Popover
+                      open={popoverOpen[model.id] || false}
+                      onOpenChange={(open) => setPopoverOpen({ ...popoverOpen, [model.id]: open })}
+                    >
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" role="combobox" className="w-full justify-between font-mono">
+                          {model.modelName || "モデルを選択..."}
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+                        <Command>
+                          <CommandInput
+                            placeholder="モデル名を検索または入力..."
+                            value={model.modelName}
+                            onValueChange={(search) => {
+                              updateModel(model.id, "modelName", search);
+                            }}
+                          />
+                          <CommandList>
+                            <CommandEmpty>モデルが見つかりません。</CommandEmpty>
+                            <CommandGroup>
+                              {DEFAULT_CEREBRAS_MODELS.map((defaultModel) => (
+                                <CommandItem
+                                  key={defaultModel}
+                                  value={defaultModel}
+                                  onSelect={(currentValue) => {
+                                    updateModel(model.id, "modelName", currentValue);
+                                    setPopoverOpen({
+                                      ...popoverOpen,
+                                      [model.id]: false,
+                                    });
+                                  }}
+                                >
+                                  <Check
+                                    className={cn(
+                                      "mr-2 h-4 w-4",
+                                      model.modelName === defaultModel ? "opacity-100" : "opacity-0",
+                                    )}
+                                  />
+                                  {defaultModel}
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
                     <p className="text-xs text-muted-foreground">
-                      利用可能: zai-glm-4.6, llama3.1-8b, llama-3.3-70b など
+                      リストから選択するか、カスタムモデル名を入力してください。
                     </p>
                   </div>
                   <div className="space-y-2">
@@ -148,9 +218,17 @@ export function InferenceModels() {
                       placeholder="40960"
                     />
                   </div>
-                  <Button variant="destructive" size="sm" onClick={() => deleteModel(model.id)} className="w-full">
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => deleteModel(model.id)}
+                    className="w-full"
+                    // models.length が 1以下 の場合に disabled (無効化)
+                    disabled={models.length <= 1}
+                  >
                     <Trash2 className="h-4 w-4 mr-2" />
-                    削除
+                    {/* disabled状態の時はテキストも変更する */}
+                    {models.length <= 1 ? "最低1つのモデルが必要です" : "削除"}
                   </Button>
                 </div>
               </AccordionContent>
