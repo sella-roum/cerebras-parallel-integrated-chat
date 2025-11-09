@@ -1,7 +1,7 @@
 "use client";
 
 import type React from "react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Plus, Pencil, Trash2, Sun, Moon } from "lucide-react";
@@ -47,6 +47,7 @@ export function ConversationSidebar({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState<string>("");
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const cancelRenameRef = useRef(false);
 
   const handleDeleteClick = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -62,17 +63,26 @@ export function ConversationSidebar({
 
   const handleRenameClick = (conversation: Conversation, e: React.MouseEvent) => {
     e.stopPropagation();
+    cancelRenameRef.current = false;
     setEditingId(conversation.id);
     setEditingTitle(conversation.title);
   };
 
   const handleSaveRename = () => {
+    if (cancelRenameRef.current) {
+      cancelRenameRef.current = false;
+      setEditingId(null);
+      setEditingTitle("");
+      return;
+    }
+
     if (!editingId || editingTitle.trim() === "") {
       setEditingId(null);
       setEditingTitle("");
       return;
     }
     onUpdateConversationTitle(editingId, editingTitle.trim());
+    cancelRenameRef.current = false;
     setEditingId(null);
     setEditingTitle("");
   };
@@ -81,6 +91,8 @@ export function ConversationSidebar({
     if (e.key === "Enter") {
       handleSaveRename();
     } else if (e.key === "Escape") {
+      cancelRenameRef.current = true;
+      e.preventDefault();
       setEditingId(null);
       setEditingTitle("");
     }

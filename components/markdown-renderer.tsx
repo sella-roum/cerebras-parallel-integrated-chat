@@ -11,7 +11,6 @@ interface MarkdownRendererProps {
 
 export function MarkdownRenderer({ content, className }: MarkdownRendererProps) {
   return (
-    // ▼ 修正点 1: "break-words" を追加 ▼
     <div className={cn("prose prose-sm dark:prose-invert max-w-none break-words", className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
@@ -26,14 +25,16 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
               );
             }
             return (
-              <code className="block bg-muted p-3 rounded-md text-sm font-mono overflow-x-auto" {...props}>
+              <code
+                className={cn("block bg-muted p-3 rounded-md text-sm font-mono overflow-x-auto", className)}
+                {...props}
+              >
                 {children}
               </code>
             );
           },
           pre: ({ node, children, ...props }: any) => {
             return (
-              // ▼ 修正点 2: "max-w-full" を追加 ▼
               <pre className="bg-muted p-3 rounded-md overflow-x-auto my-2 max-w-full" {...props}>
                 {children}
               </pre>

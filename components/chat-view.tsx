@@ -91,11 +91,12 @@ export function ChatView({
 
     try {
       await db.addMessage(userMessage);
-      setMessages([...messages, userMessage]);
+      const nextMessages = [...messages, userMessage];
+      setMessages(nextMessages);
       setInput("");
       setIsLoading(true);
 
-      if (messages.length === 1) {
+      if (nextMessages.length === 1) {
         // ユーザーメッセージが追加された後なので、1
         const title = input.slice(0, 30) + (input.length > 30 ? "..." : "");
         onUpdateConversationTitle(conversationId, title);
@@ -107,7 +108,7 @@ export function ChatView({
       console.log("Calling LLM service with settings and system prompt.");
 
       const { content, modelResponses } = await llmService.generateResponseWithDetails(
-        [...messages, userMessage],
+        nextMessages,
         modelSettings,
         appSettings || {},
         currentSystemPrompt, // <-- システムプロンプトを渡す
@@ -352,7 +353,6 @@ export function ChatView({
                 )}
               </div>
 
-              {/* ▼ ----- ボタンの表示ロジック ----- ▼ */}
               {/*
                 isLoading中はボタンを非表示にするか、
                 特定のメッセージがローディング中かなどを管理する必要があるが、
@@ -368,7 +368,6 @@ export function ChatView({
                   </Button>
                 </div>
               )}
-              {/* ▲ ------------------------------- ▲ */}
             </div>
           </div>
         ))}

@@ -111,7 +111,8 @@ export async function POST(req: NextRequest) {
 
   const shuffledApiKeys = shuffleArray(apiKeys);
 
-  const { messages, modelSettings, appSettings, systemPrompt } = await req.json();
+  const { messages, modelSettings, appSettings: rawAppSettings, systemPrompt } = await req.json();
+  const appSettings: AppSettings = rawAppSettings ?? {};
 
   const enabledModels: ModelSettings[] = modelSettings.filter((m: any) => m.enabled);
   if (enabledModels.length === 0) {
