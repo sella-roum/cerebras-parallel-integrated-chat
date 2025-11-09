@@ -11,7 +11,6 @@ const _geistMono = Geist_Mono({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "マルチLLMチャット",
   description: "複数のLLMを統合した高機能チャットアプリケーション",
-  generator: "v0.app",
   icons: {
     icon: [
       {
