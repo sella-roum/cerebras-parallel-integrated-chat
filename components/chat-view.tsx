@@ -7,57 +7,62 @@ import { Textarea } from "@/components/ui/textarea";
 import { Menu, Settings, Send, Bot, Copy, RefreshCw, Loader2, ChevronDown } from "lucide-react";
 import { useMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
-import { db, type Message } from "@/lib/db";
+import { db, type Message, type Conversation } from "@/lib/db"; // Conversation をインポート
 import { llmService } from "@/lib/llm-service";
 import { useToast } from "@/hooks/use-toast";
 import { MarkdownRenderer } from "./markdown-renderer";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 interface ChatViewProps {
-  selectedConversation: string | null;
+  selectedConversationData: Conversation | null; // <-- IDからオブジェクトに変更
   onOpenSidebar: () => void;
   onOpenSettings: () => void;
   onUpdateConversationTitle: (id: string, title: string) => void;
   onNewConversation: () => void;
+  onUpdateConversationSystemPrompt: (id: string, systemPrompt: string) => void; // <-- 追加
 }
 
 export function ChatView({
-  selectedConversation,
+  selectedConversationData,
   onOpenSidebar,
   onOpenSettings,
   onUpdateConversationTitle,
   onNewConversation,
+  onUpdateConversationSystemPrompt, // <-- 追加
 }: ChatViewProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [hoveredMessageId, setHoveredMessageId] = useState<string | null>(null);
   const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set());
+  const [currentSystemPrompt, setCurrentSystemPrompt] = useState(""); // <-- システムプロンプト用state
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const isMobile = useMobile();
   const { toast } = useToast();
 
   useEffect(() => {
-    if (selectedConversation) {
-      loadMessages();
+    if (selectedConversationData) {
+      loadMessages(selectedConversationData.id);
+      // 会話が切り替わったらシステムプロンプトを更新
+      setCurrentSystemPrompt(selectedConversationData.systemPrompt || "");
     } else {
       setMessages([]);
+      setCurrentSystemPrompt(""); // 新規チャット時はクリア
     }
-  }, [selectedConversation]);
+  }, [selectedConversationData]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const loadMessages = async () => {
-    if (!selectedConversation) return;
+  const loadMessages = async (conversationId: string) => {
     try {
-      const loadedMessages = await db.getMessages(selectedConversation);
+      const loadedMessages = await db.getMessages(conversationId);
       setMessages(loadedMessages);
-      console.log("[v0] Loaded messages:", loadedMessages.length);
+      console.log("Loaded messages:", loadedMessages.length);
     } catch (error) {
-      console.error("[v0] Failed to load messages:", error);
+      console.error("Failed to load messages:", error);
       toast({
         title: "メッセージの読み込みに失敗しました",
         variant: "destructive",
@@ -69,8 +74,9 @@ export function ChatView({
     e.preventDefault();
     if (!input.trim() || isLoading) return;
 
-    const conversationId = selectedConversation;
+    const conversationId = selectedConversationData?.id;
     if (!conversationId) {
+      // IDがない（新規会話）の場合は、先に onNewConversation を呼び出す必要がある
       await onNewConversation();
       return;
     }
@@ -89,7 +95,8 @@ export function ChatView({
       setInput("");
       setIsLoading(true);
 
-      if (messages.length === 0) {
+      if (messages.length === 1) {
+        // ユーザーメッセージが追加された後なので、1
         const title = input.slice(0, 30) + (input.length > 30 ? "..." : "");
         onUpdateConversationTitle(conversationId, title);
       }
@@ -97,12 +104,13 @@ export function ChatView({
       const modelSettings = await db.getModelSettings();
       const appSettings = await db.getAppSettings();
 
-      console.log("[v0] Calling LLM service with settings:", { modelSettings, appSettings });
+      console.log("Calling LLM service with settings and system prompt.");
 
       const { content, modelResponses } = await llmService.generateResponseWithDetails(
         [...messages, userMessage],
         modelSettings,
         appSettings || {},
+        currentSystemPrompt, // <-- システムプロンプトを渡す
       );
 
       const assistantMessage: Message = {
@@ -116,9 +124,9 @@ export function ChatView({
 
       await db.addMessage(assistantMessage);
       setMessages((prev) => [...prev, assistantMessage]);
-      console.log("[v0] Response saved successfully");
+      console.log("Response saved successfully");
     } catch (error) {
-      console.error("[v0] Failed to generate response:", error);
+      console.error("Failed to generate response:", error);
       toast({
         title: "応答の生成に失敗しました",
         description: error instanceof Error ? error.message : "エラーが発生しました",
@@ -129,6 +137,21 @@ export function ChatView({
     }
   };
 
+  // --- システムプロンプト用ハンドラ ---
+  const handleSystemPromptChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setCurrentSystemPrompt(e.target.value);
+  };
+
+  // フォーカスが外れたときにDBに保存
+  const saveSystemPrompt = () => {
+    if (selectedConversationData && selectedConversationData.systemPrompt !== currentSystemPrompt) {
+      onUpdateConversationSystemPrompt(selectedConversationData.id, currentSystemPrompt);
+      toast({ title: "システムプロンプトを保存しました", duration: 2000 });
+    }
+  };
+  // ------------------------------------
+
+  // コピー機能（実装済み）
   const handleCopy = (content: string) => {
     navigator.clipboard.writeText(content);
     toast({
@@ -137,9 +160,78 @@ export function ChatView({
     });
   };
 
+  // ▼ ----- 再生成機能（実装） ----- ▼
   const handleRegenerate = async (messageId: string) => {
-    console.log("Regenerate:", messageId);
+    if (isLoading || !selectedConversationData) return;
+
+    // 1. 再生成するAIメッセージと、その直前のユーザーメッセージを見つける
+    const messageIndex = messages.findIndex((m) => m.id === messageId);
+    if (messageIndex < 1) {
+      // 最初のメッセージか、見つからない場合は何もしない
+      return;
+    }
+
+    const assistantMessage = messages[messageIndex];
+    const userMessage = messages[messageIndex - 1];
+
+    // 直前がユーザーメッセージでない場合は再生成しない
+    if (userMessage.role !== "user" || assistantMessage.role !== "assistant") {
+      toast({ title: "このメッセージは再生成できません", variant: "destructive" });
+      return;
+    }
+
+    const conversationId = selectedConversationData.id;
+
+    // 再送する会話履歴（再生成するAIメッセージの *直前* まで）
+    const historyToResend = messages.slice(0, messageIndex);
+
+    setIsLoading(true);
+
+    try {
+      // 2. DBとStateから、再生成するAI回答 *以降* のメッセージを削除
+      await db.deleteMessagesAfter(messageId, conversationId);
+
+      // 3. UI (State) を更新
+      setMessages(historyToResend);
+
+      // 4. handleSubmit と同様のロジックでAIサービスを呼び出す
+      const modelSettings = await db.getModelSettings();
+      const appSettings = await db.getAppSettings();
+
+      const { content, modelResponses } = await llmService.generateResponseWithDetails(
+        historyToResend, // <-- AI回答の直前までの履歴
+        modelSettings,
+        appSettings || {},
+        currentSystemPrompt,
+      );
+
+      const newAssistantMessage: Message = {
+        id: `msg_${Date.now() + 1}`, // 新しいID
+        role: "assistant",
+        content,
+        timestamp: Date.now(),
+        conversationId,
+        modelResponses,
+      };
+
+      // 5. 新しい回答をDBとStateに追加
+      await db.addMessage(newAssistantMessage);
+      setMessages((prev) => [...prev, newAssistantMessage]);
+      console.log("Response regenerated successfully");
+    } catch (error) {
+      console.error("Failed to regenerate response:", error);
+      toast({
+        title: "再生成に失敗しました",
+        description: error instanceof Error ? error.message : "エラーが発生しました",
+        variant: "destructive",
+      });
+      // エラーが発生した場合、DBとUIを再同期
+      await loadMessages(conversationId);
+    } finally {
+      setIsLoading(false);
+    }
   };
+  // ▲ ----- 再生成機能（実装） ----- ▲
 
   const toggleExpanded = (messageId: string) => {
     setExpandedMessages((prev) => {
@@ -154,7 +246,8 @@ export function ChatView({
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full">
+    // min-w-0 修正済み
+    <div className="flex-1 flex flex-col min-w-0">
       {/* ヘッダー */}
       <header className="h-14 border-b border-border flex items-center justify-between px-4">
         <div className="flex items-center gap-3">
@@ -163,16 +256,31 @@ export function ChatView({
               <Menu className="h-5 w-5" />
             </Button>
           )}
-          <h1 className="text-base font-semibold">{selectedConversation ? "チャット" : "新規チャット"}</h1>
+          <h1 className="text-base font-semibold">
+            {selectedConversationData ? selectedConversationData.title : "新規チャット"}
+          </h1>
         </div>
         <Button variant="ghost" size="icon" onClick={onOpenSettings} aria-label="設定を開く">
           <Settings className="h-5 w-5" />
         </Button>
       </header>
 
+      {/* システムプロンプト入力欄 */}
+      {selectedConversationData && (
+        <div className="p-4 border-b border-border">
+          <Textarea
+            placeholder="システムプロンプト (この会話にのみ適用されます)"
+            className="text-xs max-h-[100px] min-h-[50px] resize-none"
+            value={currentSystemPrompt}
+            onChange={handleSystemPromptChange}
+            onBlur={saveSystemPrompt}
+          />
+        </div>
+      )}
+
       {/* メッセージ表示エリア */}
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
-        {messages.length === 0 && !selectedConversation && (
+        {messages.length === 0 && !selectedConversationData && (
           <div className="flex items-center justify-center h-full text-muted-foreground text-sm text-center">
             メッセージを送信して会話を開始しましょう
           </div>
@@ -244,7 +352,13 @@ export function ChatView({
                 )}
               </div>
 
-              {message.role === "assistant" && hoveredMessageId === message.id && (
+              {/* ▼ ----- ボタンの表示ロジック ----- ▼ */}
+              {/*
+                isLoading中はボタンを非表示にするか、
+                特定のメッセージがローディング中かなどを管理する必要があるが、
+                現状はシンプルに isLoading で制御
+              */}
+              {message.role === "assistant" && hoveredMessageId === message.id && !isLoading && (
                 <div className="absolute -bottom-8 left-0 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                   <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleCopy(message.content)}>
                     <Copy className="h-3.5 w-3.5" />
@@ -254,6 +368,7 @@ export function ChatView({
                   </Button>
                 </div>
               )}
+              {/* ▲ ------------------------------- ▲ */}
             </div>
           </div>
         ))}
