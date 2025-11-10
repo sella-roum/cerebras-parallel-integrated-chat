@@ -1,35 +1,45 @@
 {
   "compilerOptions": {
-    "lib": ["dom", "dom.iterable", "esnext"],
-    "allowJs": true,
-    "target": "ES6",
-    "skipLibCheck": true,
-    "strict": true,
-    "noEmit": true,
-    "esModuleInterop": true,
-    "module": "esnext",
-    "moduleResolution": "bundler",
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "jsx": "react-jsx",
-    "incremental": true,
+    // --- 基本設定 ---
+    "lib": ["dom", "dom.iterable", "esnext"], // コンパイラに含まれる組み込みライブラリ
+    "allowJs": true, // .js ファイルのコンパイルを許可
+    "target": "ES6", // JavaScriptのターゲットバージョン (ESNextではなくES6が指定されていますが、Next.jsがトランスパイルします)
+    "skipLibCheck": true, // 依存関係(node_modules)の型チェックをスキップ
+    "strict": true, // すべての厳格な型チェックオプションを有効化
+    "noEmit": true, // TypeScriptからJavaScriptへのファイル出力をしない (Babel/Next.jsが担当)
+    "esModuleInterop": true, // CommonJS と ES Modules 間の相互運用性を向上
+
+    // --- モジュール解決 ---
+    "module": "esnext", // モジュールコードの生成方法
+    "moduleResolution": "bundler", // Node.jsの最新のESM解決に近い `bundler` モードを使用
+    "resolveJsonModule": true, // .json ファイルのインポートを許可
+    "isolatedModules": true, // 各ファイルが個別にトランスパイル可能であることを保証
+
+    // --- React / Next.js ---
+    "jsx": "react-jsx", // React 17+ の新しいJSXトランスフォームを使用
+    "incremental": true, // インクリメンタルコンパイルを有効化
     "plugins": [
       {
-        "name": "next"
+        "name": "next" // Next.js用のTypeScriptプラグイン
       }
     ],
+
+    // --- パスエイリアス ---
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"] // `@/` をプロジェクトルート (`./`) として解決
     }
   },
+  // --- 対象ファイル ---
   "include": [
-    "next-env.d.ts",
+    "next-env.d.ts", // Next.js が自動生成する型定義
     "**/*.ts",
     "**/*.tsx",
-    ".next/types/**/*.ts",
+    ".next/types/**/*.ts", // Next.js がビルド時に生成する型定義
     ".next/dev/types/**/*.ts",
+    // (Windows環境用のパス)
     ".next\\dev/types/**/*.ts",
     ".next\\dev/types/**/*.ts"
   ],
-  "exclude": ["node_modules"]
+  // --- 除外ファイル ---
+  "exclude": ["node_modules"] // 型チェックの対象外
 }

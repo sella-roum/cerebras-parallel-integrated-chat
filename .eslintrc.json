@@ -1,5 +1,15 @@
 {
+  // この設定ファイルをプロジェクトのルートとしてマーク
   "root": true,
-  "extends": ["next/core-web-vitals", "next/typescript", "prettier"],
+  // 継承する設定セット
+  "extends": [
+    // Next.js の基本的なESLintルール (Core Web Vitalsを含む)
+    "next/core-web-vitals",
+    // Next.js のTypeScript固有ルール
+    "next/typescript",
+    // Prettier と競合するESLintルールを無効化する
+    "prettier"
+  ],
+  // ESLintのチェック対象から除外するディレクトリ
   "ignorePatterns": ["node_modules/", ".next/", "dist/", "build/"]
 }

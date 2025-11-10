@@ -1,21 +1,37 @@
 import type { Message, ModelSettings, AppSettings, ModelResponse } from "./db";
 
+/**
+ * サーバーサイドのLLM API（/api/chat）と通信するためのサービスクラス
+ */
 export class LLMService {
   /**
    * サーバーサイドの /api/chat エンドポイントを呼び出します。
    * APIキーの管理やLLMの直接呼び出しはサーバー側で行われます。
+   *
+   * @param {Message[]} messages - 現在の会話履歴（要約済みの場合は要約を含む）
+   * @param {ModelSettings[]} modelSettings - クライアントで設定された全推論モデルの設定
+   * @param {AppSettings} appSettings - アプリ設定（要約・統合モデル）
+   * @param {string | undefined} systemPrompt - この会話に固有のシステムプロンプト
+   * @param {number} totalContentLength - 現在の履歴の総文字数（要約トリガー判定用）
+   * @returns {Promise<{
+   * content: string;
+   * modelResponses: ModelResponse[];
+   * summaryExecuted: boolean;
+   * newHistoryContext: Message[] | null;
+   * }>} 統合された最終回答と、要約が実行されたかの情報
+   * @throws {Error} API呼び出しが失敗した場合
    */
   async generateResponseWithDetails(
     messages: Message[],
     modelSettings: ModelSettings[],
     appSettings: AppSettings,
-    systemPrompt: string | undefined, // ▼ 変更点 (フェーズ1)： undefined を許容
-    totalContentLength: number, // ▼ 変更点 (フェーズ1)： 引数を追加
+    systemPrompt: string | undefined,
+    totalContentLength: number,
   ): Promise<{
     content: string;
     modelResponses: ModelResponse[];
-    summaryExecuted: boolean; // ▼ 変更点 (フェーズ1)： 戻り値の型を追加
-    newHistoryContext: Message[] | null; // ▼ 変更点 (フェーズ1)： 戻り値の型を追加
+    summaryExecuted: boolean;
+    newHistoryContext: Message[] | null;
   }> {
     console.log("Calling Next.js API route (/api/chat)");
 
@@ -29,16 +45,17 @@ export class LLMService {
         modelSettings,
         appSettings,
         systemPrompt,
-        totalContentLength, // ▼ 変更点 (フェーズ1)： リクエストボディに追加
+        totalContentLength,
       }),
     });
 
     if (!response.ok) {
+      // APIがエラーを返した場合、JSONからエラーメッセージを抽出
       const errorData = await response.json().catch(() => ({ error: "APIから無効な応答が返されました" }));
       throw new Error(errorData.error || `APIエラー (HTTP ${response.status})`);
     }
 
-    // ▼ 変更点 (フェーズ1)： APIの新しい応答の型に合わせてキャスト
+    // APIからの成功応答をそのまま返す
     return response.json() as Promise<{
       content: string;
       modelResponses: ModelResponse[];
@@ -48,8 +65,8 @@ export class LLMService {
   }
 
   /**
-   * generateResponseWithDetailsのラッパー
-   * (注: このラッパーは引数が合わなくなるため、呼び出し側で generateResponseWithDetails を直接使用することを推奨)
+   * @deprecated この関数は古いシグネチャです。`generateResponseWithDetails` を直接使用してください。
+   * (注: このラッパーは `totalContentLength` に 0 を渡すため、要約機能が正しく動作しません)
    */
   async generateResponse(
     messages: Message[],
@@ -57,16 +74,18 @@ export class LLMService {
     appSettings: AppSettings,
     systemPrompt?: string,
   ): Promise<string> {
-    // ▼ 変更点 (フェーズ1)： totalContentLength にダミーの0を渡す (非推奨)
     const result = await this.generateResponseWithDetails(
       messages,
       modelSettings,
       appSettings,
       systemPrompt,
-      0, // このラッパーは使われなくなる想定
+      0, // totalContentLength が 0 固定のため、文字数ベースの要約が機能しない
     );
     return result.content;
   }
 }
 
+/**
+ * LLMServiceクラスのシングルトンインスタンス
+ */
 export const llmService = new LLMService();

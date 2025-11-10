@@ -12,15 +12,28 @@ import { useToast } from "@/hooks/use-toast";
 import { MarkdownRenderer } from "./markdown-renderer";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
+/**
+ * ChatViewコンポーネントのProps
+ */
 interface ChatViewProps {
+  /** 現在選択されている会話オブジェクト (ない場合は null) */
   selectedConversationData: Conversation | null;
+  /** サイドバーを開くためのコールバック */
   onOpenSidebar: () => void;
+  /** 設定ダイアログを開くためのコールバック */
   onOpenSettings: () => void;
+  /** 会話タイトルを更新するためのコールバック */
   onUpdateConversationTitle: (id: string, title: string) => void;
+  /** 新規会話を作成するためのコールバック */
   onNewConversation: () => void;
+  /** 会話のシステムプロンプトを更新するためのコールバック */
   onUpdateConversationSystemPrompt: (id: string, systemPrompt: string) => void;
 }
 
+/**
+ * メインのチャット表示・操作エリア
+ * @param {ChatViewProps} props
+ */
 export function ChatView({
   selectedConversationData,
   onOpenSidebar,
@@ -37,25 +50,33 @@ export function ChatView({
   const [currentSystemPrompt, setCurrentSystemPrompt] = useState("");
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState<string>("");
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const isMobile = useMobile();
   const { toast } = useToast();
 
+  // 選択中の会話が変更されたら、メッセージリストとシステムプロンプトを再読み込み
   useEffect(() => {
     if (selectedConversationData) {
       loadMessages(selectedConversationData.id);
       setCurrentSystemPrompt(selectedConversationData.systemPrompt || "");
     } else {
+      // 会話が選択されていない場合（初期状態など）はリセット
       setMessages([]);
       setCurrentSystemPrompt("");
     }
   }, [selectedConversationData]);
 
+  // メッセージリストが更新されたら、一番下にスクロール
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  /**
+   * IndexedDBから指定された会話のメッセージを読み込みます。
+   * @param {string} conversationId - 読み込む会話のID
+   */
   const loadMessages = async (conversationId: string) => {
     try {
       const loadedMessages = await db.getMessages(conversationId);
@@ -70,12 +91,18 @@ export function ChatView({
     }
   };
 
+  /**
+   * メッセージ送信フォームのハンドラ
+   * @param {React.FormEvent} e - フォームイベント
+   */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
 
     const conversationId = selectedConversationData?.id;
     if (!conversationId) {
+      // もし会話が選択されていなければ、新しい会話を作成してから処理を続行
+      // (このケースは通常、`onNewConversation` が先に呼ばれるため稀)
       await onNewConversation();
       return;
     }
@@ -89,24 +116,27 @@ export function ChatView({
     };
 
     try {
+      // 1. ユーザーメッセージをDBとStateに追加
       await db.addMessage(userMessage);
       const nextMessages = [...messages, userMessage];
       setMessages(nextMessages);
       setInput("");
       setIsLoading(true);
 
+      // 2. 会話の最初のメッセージの場合、自動でタイトルを更新
       if (nextMessages.length === 1) {
         const title = input.slice(0, 30) + (input.length > 30 ? "..." : "");
         onUpdateConversationTitle(conversationId, title);
       }
 
+      // 3. DBから最新のモデル設定を取得
       const modelSettings = await db.getModelSettings();
       const appSettings = await db.getAppSettings();
 
-      console.log("Calling LLM service with settings and system prompt.");
-
+      // 4. APIに送信する総文字数を計算（要約トリガー判定用）
       const totalContentLength = nextMessages.reduce((acc, msg) => acc + msg.content.length, 0);
 
+      // 5. サーバーAPIを呼び出し
       const { content, modelResponses, summaryExecuted, newHistoryContext } =
         await llmService.generateResponseWithDetails(
           nextMessages,
@@ -116,6 +146,7 @@ export function ChatView({
           totalContentLength,
         );
 
+      // 6. アシスタントの応答メッセージを作成
       const assistantMessage: Message = {
         id: `msg_${Date.now() + 1}`,
         role: "assistant",
@@ -125,12 +156,15 @@ export function ChatView({
         modelResponses,
       };
 
+      // 7. サーバー側で要約が実行された場合の処理
       if (summaryExecuted && newHistoryContext) {
         console.log("[Sync] サーバー側で要約が実行されました。クライアントの履歴を同期します。");
+        // DBの履歴をサーバー側の新しい履歴（要約＋ユーザー＋アシスタント）で完全に置き換え
         const newFullHistory = [...newHistoryContext, userMessage, assistantMessage];
         await db.replaceHistory(conversationId, newFullHistory);
         setMessages(newFullHistory);
       } else {
+        // 8. 通常の応答処理
         await db.addMessage(assistantMessage);
         setMessages((prev) => [...prev, assistantMessage]);
       }
@@ -148,10 +182,17 @@ export function ChatView({
     }
   };
 
+  /**
+   * システムプロンプト入力欄の変更ハンドラ
+   * @param {React.ChangeEvent<HTMLTextAreaElement>} e
+   */
   const handleSystemPromptChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setCurrentSystemPrompt(e.target.value);
   };
 
+  /**
+   * システムプロンプト入力欄からフォーカスが外れた際に、変更を保存します。
+   */
   const saveSystemPrompt = () => {
     if (selectedConversationData && selectedConversationData.systemPrompt !== currentSystemPrompt) {
       onUpdateConversationSystemPrompt(selectedConversationData.id, currentSystemPrompt);
@@ -159,6 +200,10 @@ export function ChatView({
     }
   };
 
+  /**
+   * クリップボードへのコピーハンドラ
+   * @param {string} content - コピーするテキスト
+   */
   const handleCopy = (content: string) => {
     navigator.clipboard.writeText(content);
     toast({
@@ -167,10 +212,15 @@ export function ChatView({
     });
   };
 
+  /**
+   * AIの応答を再生成します。
+   * @param {string} messageId - 再生成するアシスタントメッセージのID
+   */
   const handleRegenerate = async (messageId: string) => {
     if (isLoading || !selectedConversationData) return;
 
     const messageIndex = messages.findIndex((m) => m.id === messageId);
+    // ユーザー/アシスタントのペアが見つからない場合は終了
     if (messageIndex < 1) {
       return;
     }
@@ -184,19 +234,24 @@ export function ChatView({
     }
 
     const conversationId = selectedConversationData.id;
+    // 再生成対象のアシスタントメッセージ *より前* の履歴をAPIに送信する
     const historyToResend = messages.slice(0, messageIndex);
 
     setIsLoading(true);
 
     try {
+      // 1. DBとStateから、再生成対象のメッセージ *以降* を削除
       await db.deleteMessagesAfter(messageId, conversationId);
       setMessages(historyToResend);
 
+      // 2. モデル設定を取得
       const modelSettings = await db.getModelSettings();
       const appSettings = await db.getAppSettings();
 
+      // 3. 総文字数を計算
       const totalContentLength = historyToResend.reduce((acc, msg) => acc + msg.content.length, 0);
 
+      // 4. APIを呼び出し
       const { content, modelResponses, summaryExecuted, newHistoryContext } =
         await llmService.generateResponseWithDetails(
           historyToResend,
@@ -206,6 +261,7 @@ export function ChatView({
           totalContentLength,
         );
 
+      // 5. 新しいアシスタントメッセージを作成
       const newAssistantMessage: Message = {
         id: `msg_${Date.now() + 1}`,
         role: "assistant",
@@ -215,12 +271,15 @@ export function ChatView({
         modelResponses,
       };
 
+      // 6. 再生成中に要約がトリガーされた場合の処理
       if (summaryExecuted && newHistoryContext) {
         console.warn("[Regenerate] 再生成中に要約がトリガーされました。履歴を同期します。");
+        // この場合、履歴は「要約＋新しいアシスタント応答」になる
         const historyWithSummary = [...newHistoryContext, newAssistantMessage];
         await db.replaceHistory(conversationId, historyWithSummary);
         setMessages(historyWithSummary);
       } else {
+        // 7. 通常の再生成処理
         await db.addMessage(newAssistantMessage);
         setMessages((prev) => [...prev, newAssistantMessage]);
         console.log("Response regenerated successfully");
@@ -232,22 +291,33 @@ export function ChatView({
         description: error instanceof Error ? error.message : "エラーが発生しました",
         variant: "destructive",
       });
+      // エラーが発生した場合は、DBから最新の状態を再読み込みして復元
       await loadMessages(conversationId);
     } finally {
       setIsLoading(false);
     }
   };
 
+  /**
+   * ユーザーメッセージの「編集」ボタンクリックハンドラ
+   * @param {Message} message - 編集対象のユーザーメッセージ
+   */
   const handleEditClick = (message: Message) => {
     setEditingMessageId(message.id);
     setEditingContent(message.content);
   };
 
+  /**
+   * 編集モードをキャンセルします。
+   */
   const handleCancelEdit = () => {
     setEditingMessageId(null);
     setEditingContent("");
   };
 
+  /**
+   * ユーザーメッセージを編集し、そこから会話をやり直します。
+   */
   const handleEditAndRetry = async () => {
     if (isLoading || !selectedConversationData || !editingMessageId) return;
 
@@ -266,19 +336,25 @@ export function ChatView({
     }
 
     try {
+      // 1. 編集対象メッセージの *次* のメッセージ（AIの応答）が存在すれば、それ以降をDBから削除
       const nextMessage = messages[messageIndex + 1];
       if (nextMessage) {
         await db.deleteMessagesAfter(nextMessage.id, conversationId);
       }
 
+      // 2. 編集対象メッセージの内容を更新
       await db.updateMessageContent(editingMessageId, newContent);
+
+      // 3. DBから最新の履歴（編集済み）を読み込み
       const historyToResend = await db.getMessages(conversationId);
       setMessages(historyToResend);
 
+      // 4. モデル設定を取得
       const modelSettings = await db.getModelSettings();
       const appSettings = await db.getAppSettings();
       const totalContentLength = historyToResend.reduce((acc, msg) => acc + msg.content.length, 0);
 
+      // 5. APIを呼び出し
       const { content, modelResponses, summaryExecuted, newHistoryContext } =
         await llmService.generateResponseWithDetails(
           historyToResend,
@@ -288,6 +364,7 @@ export function ChatView({
           totalContentLength,
         );
 
+      // 6. 新しいアシスタントメッセージを作成
       const assistantMessage: Message = {
         id: `msg_${Date.now() + 1}`,
         role: "assistant",
@@ -297,19 +374,23 @@ export function ChatView({
         modelResponses,
       };
 
+      // 7. 編集・やり直し中に要約がトリガーされた場合の処理
       if (summaryExecuted && newHistoryContext) {
         console.warn("[EditRetry] 編集・やり直し中に要約がトリガーされました。履歴を同期します。");
+        // この場合、履歴は「編集された履歴＋新しいアシスタント応答」になる
+        // (historyToResendは既に編集済みなので、summaryContextは使わずそのまま追加)
         const newFullHistory = [...historyToResend, assistantMessage];
         await db.replaceHistory(conversationId, newFullHistory);
         setMessages(newFullHistory);
       } else {
+        // 8. 通常のやり直し処理
         await db.addMessage(assistantMessage);
         setMessages((prev) => [...prev, assistantMessage]);
       }
     } catch (error) {
       console.error("Failed to edit and retry:", error);
       toast({ title: "やり直しに失敗しました", variant: "destructive" });
-      await loadMessages(conversationId);
+      await loadMessages(conversationId); // エラー時はDBから復元
     } finally {
       setIsLoading(false);
       setEditingMessageId(null);
@@ -317,6 +398,10 @@ export function ChatView({
     }
   };
 
+  /**
+   * 個別応答の開閉状態をトグルします。
+   * @param {string} messageId - 対象のアシスタントメッセージID
+   */
   const toggleExpanded = (messageId: string) => {
     setExpandedMessages((prev) => {
       const next = new Set(prev);
@@ -331,7 +416,7 @@ export function ChatView({
 
   return (
     <div className="flex-1 flex flex-col min-w-0">
-      {/* ヘッダー */}
+      {/* --- ヘッダー --- */}
       <header className="h-14 border-b border-border flex items-center justify-between px-4">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="icon" onClick={onOpenSidebar} aria-label="サイドバーを開く">
@@ -346,7 +431,7 @@ export function ChatView({
         </Button>
       </header>
 
-      {/* システムプロンプト入力欄 */}
+      {/* --- システムプロンプト入力欄 --- */}
       {selectedConversationData && (
         <div className="p-4 border-b border-border">
           <Textarea
@@ -354,12 +439,12 @@ export function ChatView({
             className="text-xs max-h-[100px] min-h-[50px] resize-none"
             value={currentSystemPrompt}
             onChange={handleSystemPromptChange}
-            onBlur={saveSystemPrompt}
+            onBlur={saveSystemPrompt} // フォーカスが外れたら自動保存
           />
         </div>
       )}
 
-      {/* メッセージ表示エリア */}
+      {/* --- メッセージ表示エリア --- */}
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
         {messages.length === 0 && !selectedConversationData && (
           <div className="flex items-center justify-center h-full text-muted-foreground text-sm text-center">
@@ -368,6 +453,7 @@ export function ChatView({
         )}
         {messages.map((message) => (
           <React.Fragment key={message.id}>
+            {/* 要約などのシステムメッセージ */}
             {message.role === "system" ? (
               <div className="flex items-center justify-center">
                 <div className="max-w-[70%] rounded-lg border bg-card px-4 py-3 text-xs text-muted-foreground italic">
@@ -375,6 +461,7 @@ export function ChatView({
                 </div>
               </div>
             ) : (
+              // ユーザーまたはアシスタントのメッセージ
               <div
                 className={cn("flex gap-3", message.role === "user" ? "justify-end" : "justify-start")}
                 onMouseEnter={() => setHoveredMessageId(message.id)}
@@ -387,6 +474,7 @@ export function ChatView({
                 )}
 
                 <div className="relative max-w-[70%] group">
+                  {/* ユーザーメッセージ編集中 */}
                   {editingMessageId === message.id ? (
                     <div className="w-full space-y-2">
                       <Textarea
@@ -405,6 +493,7 @@ export function ChatView({
                       </div>
                     </div>
                   ) : (
+                    // 通常のメッセージ表示
                     <div
                       className={cn(
                         "px-4 py-3 rounded-lg",
@@ -413,12 +502,14 @@ export function ChatView({
                           : "bg-card text-card-foreground border border-border",
                       )}
                     >
+                      {/* メッセージ本文 */}
                       {message.role === "assistant" ? (
                         <MarkdownRenderer content={message.content} className="text-sm" />
                       ) : (
                         <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
                       )}
 
+                      {/* 個別応答の折りたたみ */}
                       {message.role === "assistant" && message.modelResponses && message.modelResponses.length > 1 && (
                         <Collapsible
                           open={expandedMessages.has(message.id)}
@@ -459,6 +550,7 @@ export function ChatView({
                     </div>
                   )}
 
+                  {/* アシスタント用操作ボタン */}
                   {message.role === "assistant" && !isLoading && (
                     <div className="absolute -bottom-8 left-0 flex gap-1">
                       <Button
@@ -482,7 +574,7 @@ export function ChatView({
                     </div>
                   )}
 
-                  {/* ▼ 変更点： ユーザーのコピー・編集ボタン (常時表示) ▼ */}
+                  {/* ユーザー用操作ボタン */}
                   {message.role === "user" && !isLoading && !editingMessageId && (
                     <div className="absolute -bottom-8 right-0 flex gap-1">
                       <Button
@@ -505,16 +597,16 @@ export function ChatView({
                       </Button>
                     </div>
                   )}
-                  {/* ▲ 変更点 */}
                 </div>
               </div>
             )}
           </React.Fragment>
         ))}
+        {/* スクロール用の終端要素 */}
         <div ref={messagesEndRef} />
       </div>
 
-      {/* 入力フォーム */}
+      {/* --- 入力フォーム --- */}
       <div className="p-4 border-t border-border">
         <form onSubmit={handleSubmit} className="flex gap-2 items-end">
           <Textarea
@@ -525,17 +617,18 @@ export function ChatView({
             className="min-h-[44px] max-h-[200px] resize-none"
             rows={1}
             onKeyDown={(e) => {
+              // Shift+Enter 以外でのEnterキーで送信
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 handleSubmit(e);
               }
             }}
-            disabled={editingMessageId !== null} // 編集中は無効化
+            disabled={editingMessageId !== null} // ユーザーメッセージ編集中は入力不可
           />
           <Button
             type="submit"
             size="icon"
-            disabled={!input.trim() || isLoading || editingMessageId !== null} // 編集中は無効化
+            disabled={!input.trim() || isLoading || editingMessageId !== null} // ローディング中、編集中は送信不可
             aria-label="送信"
             className="flex-shrink-0"
           >

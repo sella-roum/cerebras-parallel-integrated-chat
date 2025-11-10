@@ -1,46 +1,47 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import * as AccordionPrimitive from "@radix-ui/react-accordion"; // プリミティブをインポート
+// AccordionTrigger がネストされた <button> を含んでいたため、プリミティブを直接使用して修正
+import * as AccordionPrimitive from "@radix-ui/react-accordion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Accordion, AccordionContent, AccordionItem } from "@/components/ui/accordion";
-import {
-  Plus,
-  Trash2,
-  ChevronDownIcon, // <button> ネスト修正用
-  Check, // ComboBox用
-  ChevronsUpDown, // ComboBox用
-} from "lucide-react";
+import { Plus, Trash2, ChevronDownIcon, Check, ChevronsUpDown } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { db, type ModelSettings } from "@/lib/db";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-
-// ComboBox (Popover + Command) に必要なコンポーネント
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-
 import { DEFAULT_CEREBRAS_MODELS } from "@/lib/constants";
 
+/**
+ * 並行推論に使用するモデルを設定するコンポーネント
+ * 複数のモデルを動的に追加・削除・設定できます。
+ */
 export function InferenceModels() {
   const [models, setModels] = useState<ModelSettings[]>([]);
-  // ComboBoxの開閉状態をモデルごとに管理
+  /** 各ComboBox(Popover)の開閉状態をモデルIDごとに管理 */
   const [popoverOpen, setPopoverOpen] = useState<Record<string, boolean>>({});
   const { toast } = useToast();
 
+  // マウント時にDBから設定を読み込む
   useEffect(() => {
     loadModels();
   }, []);
 
+  /**
+   * IndexedDBから推論モデル設定を読み込みます。
+   * 設定が0件の場合は、デフォルトのモデルを1件追加します。
+   */
   const loadModels = async () => {
     try {
       const settings = await db.getModelSettings();
-      // もし0件ならデフォルトを1件追加する
       if (settings.length === 0) {
+        // 設定が空の場合、デフォルトのモデルを1つ作成
         const newModel: ModelSettings = {
           id: `model_${Date.now()}`,
           provider: "cerebras",
@@ -60,6 +61,9 @@ export function InferenceModels() {
     }
   };
 
+  /**
+   * 新しいデフォルトの推論モデルをリストとDBに追加します。
+   */
   const addModel = () => {
     const newModel: ModelSettings = {
       id: `model_${Date.now()}`,
@@ -74,8 +78,12 @@ export function InferenceModels() {
     setModels([...models, newModel]);
   };
 
+  /**
+   * 指定されたIDの推論モデルを削除します。
+   * @param {string} id - 削除するモデルのID
+   */
   const deleteModel = async (id: string) => {
-    // 既にUIで無効化されているはずだが、念のためロジック側でもチェック
+    // 最後の1つは削除できないようにUI側で制御
     if (models.length <= 1) {
       toast({
         title: "削除できません",
@@ -88,9 +96,6 @@ export function InferenceModels() {
     try {
       await db.deleteModelSettings(id);
       setModels(models.filter((m) => m.id !== id));
-      // toast({
-      //   title: "モデルを削除しました",
-      // })
     } catch (error) {
       console.error("Failed to delete model:", error);
       toast({
@@ -100,14 +105,20 @@ export function InferenceModels() {
     }
   };
 
+  /**
+   * モデル設定のいずれかのフィールドを更新し、DBに保存します。
+   * @param {string} id - 更新するモデルのID
+   * @param {keyof ModelSettings} field - 更新するフィールド名
+   * @param {string | boolean | number} value - 新しい値
+   */
   const updateModel = async (id: string, field: keyof ModelSettings, value: string | boolean | number) => {
     const updatedModels = models.map((m) => (m.id === id ? { ...m, [field]: value } : m));
     setModels(updatedModels);
 
-    const model = updatedModels.find((m) => m.id === id);
-    if (model) {
+    const modelToSave = updatedModels.find((m) => m.id === id);
+    if (modelToSave) {
       try {
-        await db.saveModelSettings(model);
+        await db.saveModelSettings(modelToSave);
         console.log("Model settings saved:", id);
       } catch (error) {
         console.error("Failed to save model settings:", error);
@@ -124,25 +135,35 @@ export function InferenceModels() {
         <Accordion type="single" collapsible className="w-full">
           {models.map((model) => (
             <AccordionItem key={model.id} value={model.id}>
+              {/* shadcn/uiのAccordionTriggerは内部で<button>をレンダリングします。
+                UIガイドライン上、<button>のネストは非推奨（または不正）となるため、
+                右側のSwitchと干渉しないよう、Radix UIのプリミティブを直接使用して
+                Trigger領域とHeader領域を分離しています。
+              */}
               <AccordionPrimitive.Header className="flex items-center justify-between w-full py-4 pr-4">
+                {/* クリック可能なTrigger領域 */}
                 <AccordionPrimitive.Trigger
                   className={cn(
                     "focus-visible:border-ring focus-visible:ring-ring/50 flex flex-1 items-start gap-4 rounded-md py-0 text-left text-sm font-medium transition-all outline-none hover:underline focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 [&[data-state=open]>svg]:rotate-180",
-                    "hover:no-underline",
+                    "hover:no-underline", // アンダラインが不要な場合はこの行を有効化
                   )}
                 >
                   <span className="text-sm font-medium">{model.modelName || ""}</span>
                   <ChevronDownIcon className="text-muted-foreground pointer-events-none size-4 shrink-0 translate-y-0.5 transition-transform duration-200" />
                 </AccordionPrimitive.Trigger>
 
+                {/* 有効/無効トグルスイッチ */}
                 <Switch
                   checked={model.enabled}
                   onCheckedChange={(checked) => updateModel(model.id, "enabled", checked)}
+                  aria-label={`${model.modelName} を有効にする`}
                 />
               </AccordionPrimitive.Header>
 
+              {/* アコーディオンコンテンツ */}
               <AccordionContent>
                 <div className="space-y-4 pt-4">
+                  {/* モデル名 (ComboBox) */}
                   <div className="space-y-2">
                     <Label htmlFor={`model-name-${model.id}`}>モデル名</Label>
                     <Popover
@@ -150,7 +171,12 @@ export function InferenceModels() {
                       onOpenChange={(open) => setPopoverOpen({ ...popoverOpen, [model.id]: open })}
                     >
                       <PopoverTrigger asChild>
-                        <Button variant="outline" role="combobox" className="w-full justify-between font-mono">
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          className="w-full justify-between font-mono"
+                          id={`model-name-${model.id}`}
+                        >
                           {model.modelName || "モデルを選択..."}
                           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                         </Button>
@@ -161,6 +187,7 @@ export function InferenceModels() {
                             placeholder="モデル名を検索または入力..."
                             value={model.modelName}
                             onValueChange={(search) => {
+                              // カスタム入力にも対応
                               updateModel(model.id, "modelName", search);
                             }}
                           />
@@ -197,6 +224,7 @@ export function InferenceModels() {
                       リストから選択するか、カスタムモデル名を入力してください。
                     </p>
                   </div>
+                  {/* Temperature */}
                   <div className="space-y-2">
                     <Label htmlFor={`temperature-${model.id}`}>Temperature: {model.temperature}</Label>
                     <Slider
@@ -208,6 +236,7 @@ export function InferenceModels() {
                       onValueChange={([value]) => updateModel(model.id, "temperature", value)}
                     />
                   </div>
+                  {/* 最大トークン数 */}
                   <div className="space-y-2">
                     <Label htmlFor={`max-tokens-${model.id}`}>最大トークン数</Label>
                     <Input
@@ -218,16 +247,15 @@ export function InferenceModels() {
                       placeholder="40960"
                     />
                   </div>
+                  {/* 削除ボタン */}
                   <Button
                     variant="destructive"
                     size="sm"
                     onClick={() => deleteModel(model.id)}
                     className="w-full"
-                    // models.length が 1以下 の場合に disabled (無効化)
-                    disabled={models.length <= 1}
+                    disabled={models.length <= 1} // 最後の1つは削除不可
                   >
                     <Trash2 className="h-4 w-4 mr-2" />
-                    {/* disabled状態の時はテキストも変更する */}
                     {models.length <= 1 ? "最低1つのモデルが必要です" : "削除"}
                   </Button>
                 </div>

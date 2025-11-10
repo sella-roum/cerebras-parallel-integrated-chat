@@ -3,13 +3,10 @@
 import type React from "react";
 import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-// ▼ 変更点 (フェーズ2)： CopyPlus をインポート
+// Avatar, AvatarFallback は不要になったため削除
 import { Plus, Pencil, Trash2, Sun, Moon, CopyPlus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Conversation } from "@/lib/db";
-
-// 必要なコンポーネントをインポート
 import { Input } from "@/components/ui/input";
 import {
   AlertDialog,
@@ -23,18 +20,34 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 
+/**
+ * ConversationSidebarコンポーネントのProps
+ */
 interface ConversationSidebarProps {
+  /** 現在ダークモードか否か */
   isDark: boolean;
+  /** ダークモードのトグル関数 */
   toggleDarkMode: () => void;
+  /** 選択中の会話ID */
   selectedConversation: string | null;
+  /** 会話を選択するコールバック */
   setSelectedConversation: (id: string) => void;
+  /** 表示する会話のリスト (親コンポーネントでソート済み) */
   conversations: Conversation[];
+  /** 新規会話作成のコールバック */
   onNewConversation: () => void;
+  /** 会話削除のコールバック */
   onDeleteConversation: (id: string) => void;
+  /** 会話タイトル更新のコールバック */
   onUpdateConversationTitle: (id: string, title: string) => void;
-  onDuplicateConversation: (id: string) => void; // ▼ 変更点 (フェーズ2)： prop を追加
+  /** 会話複製のコールバック */
+  onDuplicateConversation: (id: string) => void;
 }
 
+/**
+ * 会話履歴を表示・管理するサイドバー
+ * @param {ConversationSidebarProps} props
+ */
 export function ConversationSidebar({
   isDark,
   toggleDarkMode,
@@ -44,21 +57,33 @@ export function ConversationSidebar({
   onNewConversation,
   onDeleteConversation,
   onUpdateConversationTitle,
-  onDuplicateConversation, // ▼ 変更点 (フェーズ2)： prop を受け取る
+  onDuplicateConversation,
 }: ConversationSidebarProps) {
+  // ホバー中の会話ID（ボタン表示用）
   const [hoveredId, setHoveredId] = useState<string | null>(null);
-
+  // 名前編集中の会話ID
   const [editingId, setEditingId] = useState<string | null>(null);
+  // 名前編集中のテキスト
   const [editingTitle, setEditingTitle] = useState<string>("");
+  // 削除確認ダイアログの対象ID
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  // ESCキーでの編集キャンセルを検知するためのRef
   const cancelRenameRef = useRef(false);
   const { toast } = useToast();
 
+  /**
+   * 削除ボタンクリック時のハンドラ
+   * @param {string} id - 削除対象のID
+   * @param {React.MouseEvent} e - イベント
+   */
   const handleDeleteClick = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
+    e.stopPropagation(); // 親の onClick が発火しないように
     setDeleteTargetId(id);
   };
 
+  /**
+   * 削除確認ダイアログで「削除」を押したときの処理
+   */
   const confirmDelete = () => {
     if (deleteTargetId) {
       onDeleteConversation(deleteTargetId);
@@ -66,6 +91,11 @@ export function ConversationSidebar({
     setDeleteTargetId(null);
   };
 
+  /**
+   * 名前変更ボタンクリック時のハンドラ
+   * @param {Conversation} conversation - 編集対象の会話オブジェクト
+   * @param {React.MouseEvent} e - イベント
+   */
   const handleRenameClick = (conversation: Conversation, e: React.MouseEvent) => {
     e.stopPropagation();
     cancelRenameRef.current = false;
@@ -73,13 +103,21 @@ export function ConversationSidebar({
     setEditingTitle(conversation.title);
   };
 
-  // ▼ 変更点 (フェーズ2)： 複製ハンドラ
+  /**
+   * 複製ボタンクリック時のハンドラ
+   * @param {string} id - 複製対象のID
+   * @param {React.MouseEvent} e - イベント
+   */
   const handleDuplicateClick = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     onDuplicateConversation(id);
   };
 
+  /**
+   * 名前の変更を保存する処理 (InputのonBlur時に発火)
+   */
   const handleSaveRename = () => {
+    // ESCキーが押されていた場合は、保存せずに編集モードを終了
     if (cancelRenameRef.current) {
       cancelRenameRef.current = false;
       setEditingId(null);
@@ -93,28 +131,35 @@ export function ConversationSidebar({
       return;
     }
 
+    // タイトルが空の場合はエラーを表示し、編集モードを終了
     if (editingTitle.trim() === "") {
       toast({
         title: "タイトルは空にできません",
         variant: "destructive",
         duration: 3000,
       });
-      // 編集モードを終了し、元のタイトルに戻す
       setEditingId(null);
       setEditingTitle("");
       return;
     }
 
+    // 親コンポーネントに変更を通知
     onUpdateConversationTitle(editingId, editingTitle.trim());
     cancelRenameRef.current = false;
     setEditingId(null);
     setEditingTitle("");
   };
 
+  /**
+   * 名前変更Inputでのキーボードイベントハンドラ
+   * @param {React.KeyboardEvent<HTMLInputElement>} e
+   */
   const handleRenameKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
+      // Enterで保存
       handleSaveRename();
     } else if (e.key === "Escape") {
+      // Escapeでキャンセル
       cancelRenameRef.current = true;
       e.preventDefault();
       setEditingId(null);
@@ -122,12 +167,16 @@ export function ConversationSidebar({
     }
   };
 
+  /**
+   * イベントの伝播を停止する (Inputクリック用)
+   * @param {React.MouseEvent} e
+   */
   const stopPropagation = (e: React.MouseEvent) => e.stopPropagation();
 
   return (
     <>
       <div className="w-[280px] h-full flex flex-col bg-sidebar border-r border-sidebar-border">
-        {/* ヘッダー */}
+        {/* --- ヘッダー (新規チャットボタン) --- */}
         <div className="p-4 border-b border-sidebar-border">
           <Button onClick={onNewConversation} className="w-full justify-start gap-2 bg-transparent" variant="outline">
             <Plus className="w-4 h-4" />
@@ -135,7 +184,7 @@ export function ConversationSidebar({
           </Button>
         </div>
 
-        {/* 会話リスト */}
+        {/* --- 会話リスト --- */}
         <div className="flex-1 overflow-y-auto">
           {conversations.length === 0 ? (
             <div className="flex items-center justify-center h-full text-muted-foreground text-sm px-4 text-center">
@@ -143,13 +192,14 @@ export function ConversationSidebar({
             </div>
           ) : (
             <div className="p-2 space-y-1">
-              {/* (ソート対応) conversations 配列は app/page.tsx からソート済みで渡される */}
+              {/* 会話リストは親からソート済みで渡される */}
               {conversations.map((conversation) => (
                 <div
                   role="button"
                   tabIndex={0}
                   key={conversation.id}
                   onClick={() => {
+                    // 編集モード中は会話の切り替えを無効化
                     if (editingId !== conversation.id) {
                       setSelectedConversation(conversation.id);
                     }
@@ -172,22 +222,24 @@ export function ConversationSidebar({
                       : "text-sidebar-foreground",
                   )}
                 >
+                  {/* 名前編集中 */}
                   {editingId === conversation.id ? (
                     <Input
                       value={editingTitle}
                       onChange={(e) => setEditingTitle(e.target.value)}
                       onBlur={handleSaveRename}
                       onKeyDown={handleRenameKeyDown}
-                      onClick={stopPropagation}
+                      onClick={stopPropagation} // Inputクリックで会話が切り替わらないように
                       autoFocus
                       className="h-7 text-sm"
                     />
                   ) : (
+                    // 通常表示
                     <div className="flex items-center justify-between">
                       <span className="text-sm truncate pr-16">{conversation.title}</span>
+                      {/* ホバー中または選択中に操作ボタンを表示 */}
                       {(hoveredId === conversation.id || selectedConversation === conversation.id) && (
                         <div className="absolute right-2 flex gap-1">
-                          {/* ▼ 変更点 (フェーズ2)： 複製ボタンを追加 ▼ */}
                           <Button
                             variant="ghost"
                             size="icon"
@@ -225,11 +277,8 @@ export function ConversationSidebar({
           )}
         </div>
 
-        {/* フッター */}
+        {/* --- フッター (ダークモード切替) --- */}
         <div className="p-4 border-t border-sidebar-border flex items-center justify-between">
-          {/* ▼ 変更点 (フェーズ2)： アバターとユーザー名 div を削除 ▼ */}
-
-          {/* ▼ 変更点 (フェーズ2)： ダークモードボタンを右端に寄せるためのラッパー ▼ */}
           <div className="w-full flex justify-end">
             <Button
               variant="ghost"
@@ -243,6 +292,7 @@ export function ConversationSidebar({
         </div>
       </div>
 
+      {/* --- 削除確認ダイアログ --- */}
       <AlertDialog
         open={!!deleteTargetId}
         onOpenChange={(open: boolean) => {

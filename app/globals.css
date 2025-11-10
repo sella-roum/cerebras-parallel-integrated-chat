@@ -1,8 +1,19 @@
+/* Tailwind CSS v4 の基本機能、ユーティリティをインポート */
 @import "tailwindcss";
+/* Tailwind CSS v4 のアニメーションプラグイン
+  ('animate-in', 'animate-out', 'fade-in' など)
+*/
 @import "tw-animate-css";
 
+/* Tailwind v4 のカスタムバリアント定義
+  `.dark *`（ダークモード内のすべての子孫要素）に適用されます。
+*/
 @custom-variant dark (&:is(.dark *));
 
+/* :root (ライトモード) のCSS変数（デザイントークン）
+  OKLCHカラースペースを使用し、
+  shadcn/uiのテーマ規約（--background, --primaryなど）に従っています。
+*/
 :root {
   /* カスタムテーマを適用 - 洗練されたダークテーマ向けに調整 */
   --background: oklch(0.99 0 0);
@@ -23,13 +34,16 @@
   --destructive-foreground: oklch(0.99 0 0);
   --border: oklch(0.9 0 0);
   --input: oklch(0.9 0 0);
-  --ring: oklch(0.45 0.15 250);
+  --ring: oklch(0.45 0.15 250); /* フォーカスリング */
+  /* チャート用カラー (未使用の可能性あり) */
   --chart-1: oklch(0.55 0.2 250);
   --chart-2: oklch(0.6 0.15 200);
   --chart-3: oklch(0.65 0.18 300);
   --chart-4: oklch(0.7 0.12 150);
   --chart-5: oklch(0.5 0.22 280);
-  --radius: 0.5rem;
+  --radius: 0.5rem; /* border-radius */
+
+  /* サイドバー固有のテーマ変数 */
   --sidebar: oklch(0.98 0 0);
   --sidebar-foreground: oklch(0.15 0 0);
   --sidebar-primary: oklch(0.45 0.15 250);
@@ -40,8 +54,9 @@
   --sidebar-ring: oklch(0.45 0.15 250);
 }
 
+/* .dark セレクタ（ダークモード）のCSS変数
+*/
 .dark {
-  /* ダークモードのテーマ - プロフェッショナルで洗練された配色 */
   --background: oklch(0.12 0 0);
   --foreground: oklch(0.95 0 0);
   --card: oklch(0.15 0 0);
@@ -76,9 +91,16 @@
   --sidebar-ring: oklch(0.6 0.18 250);
 }
 
+/* Tailwind CSS v4 の @theme ディレクティブ
+  ここで定義された変数を、Tailwindのユーティリティクラス
+  (例: `bg-background`, `text-primary`, `rounded-lg`) として使用可能にします。
+*/
 @theme inline {
+  /* フォント */
   --font-sans: "Geist", "Geist Fallback";
   --font-mono: "Geist Mono", "Geist Mono Fallback";
+
+  /* カラーパレット */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -103,10 +125,14 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+
+  /* border-radius */
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+
+  /* サイドバー用カラーパレット (Tailwindクラスとして利用可能に) */
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -117,11 +143,20 @@
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
+/* Tailwind v4 の `@layer base`
+  HTML要素のデフォルトスタイルを定義します。
+*/
 @layer base {
   * {
+    /* すべての要素のデフォルトのボーダー色と
+      フォーカスリング（アウトライン）の色をCSS変数に紐付けます 
+    */
     @apply border-border outline-ring/50;
   }
   body {
+    /* bodyのデフォルトの背景色と文字色を
+      CSS変数（@themeで定義）に紐付けます 
+    */
     @apply bg-background text-foreground;
   }
 }
