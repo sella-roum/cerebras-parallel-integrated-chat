@@ -60,7 +60,7 @@ const CONVERSATION_THRESHOLD = 10;
 /**
  * 履歴の自動要約がトリガーされる総文字数の閾値
  */
-const CONTENT_LENGTH_THRESHOLD = 8000;
+const CONTENT_LENGTH_THRESHOLD = 30000;
 // #endregion
 
 // #region APIキー管理
