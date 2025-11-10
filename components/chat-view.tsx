@@ -1,24 +1,24 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react"; // ▼ 変更点： React をインポート
+import React, { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Menu, Settings, Send, Bot, Copy, RefreshCw, Loader2, ChevronDown } from "lucide-react";
+import { Menu, Settings, Send, Bot, Copy, RefreshCw, Loader2, ChevronDown, Pencil } from "lucide-react";
 import { useMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
-import { db, type Message, type Conversation } from "@/lib/db"; // Conversation をインポート
+import { db, type Message, type Conversation } from "@/lib/db";
 import { llmService } from "@/lib/llm-service";
 import { useToast } from "@/hooks/use-toast";
 import { MarkdownRenderer } from "./markdown-renderer";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 interface ChatViewProps {
-  selectedConversationData: Conversation | null; // <-- IDからオブジェクトに変更
+  selectedConversationData: Conversation | null;
   onOpenSidebar: () => void;
   onOpenSettings: () => void;
   onUpdateConversationTitle: (id: string, title: string) => void;
   onNewConversation: () => void;
-  onUpdateConversationSystemPrompt: (id: string, systemPrompt: string) => void; // <-- 追加
+  onUpdateConversationSystemPrompt: (id: string, systemPrompt: string) => void;
 }
 
 export function ChatView({
@@ -27,14 +27,16 @@ export function ChatView({
   onOpenSettings,
   onUpdateConversationTitle,
   onNewConversation,
-  onUpdateConversationSystemPrompt, // <-- 追加
+  onUpdateConversationSystemPrompt,
 }: ChatViewProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [hoveredMessageId, setHoveredMessageId] = useState<string | null>(null);
   const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set());
-  const [currentSystemPrompt, setCurrentSystemPrompt] = useState(""); // <-- システムプロンプト用state
+  const [currentSystemPrompt, setCurrentSystemPrompt] = useState("");
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editingContent, setEditingContent] = useState<string>("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const isMobile = useMobile();
@@ -43,11 +45,10 @@ export function ChatView({
   useEffect(() => {
     if (selectedConversationData) {
       loadMessages(selectedConversationData.id);
-      // 会話が切り替わったらシステムプロンプトを更新
       setCurrentSystemPrompt(selectedConversationData.systemPrompt || "");
     } else {
       setMessages([]);
-      setCurrentSystemPrompt(""); // 新規チャット時はクリア
+      setCurrentSystemPrompt("");
     }
   }, [selectedConversationData]);
 
@@ -75,7 +76,6 @@ export function ChatView({
 
     const conversationId = selectedConversationData?.id;
     if (!conversationId) {
-      // IDがない（新規会話）の場合は、先に onNewConversation を呼び出す必要がある
       await onNewConversation();
       return;
     }
@@ -96,7 +96,6 @@ export function ChatView({
       setIsLoading(true);
 
       if (nextMessages.length === 1) {
-        // ユーザーメッセージが追加された後なので、1
         const title = input.slice(0, 30) + (input.length > 30 ? "..." : "");
         onUpdateConversationTitle(conversationId, title);
       }
@@ -106,17 +105,15 @@ export function ChatView({
 
       console.log("Calling LLM service with settings and system prompt.");
 
-      // ▼ 変更点： 総文字列長を計算 ▼
       const totalContentLength = nextMessages.reduce((acc, msg) => acc + msg.content.length, 0);
 
-      // ▼ 変更点： 拡張された応答を受け取る ▼
       const { content, modelResponses, summaryExecuted, newHistoryContext } =
         await llmService.generateResponseWithDetails(
           nextMessages,
           modelSettings,
           appSettings || {},
           currentSystemPrompt,
-          totalContentLength, // 文字列長を渡す
+          totalContentLength,
         );
 
       const assistantMessage: Message = {
@@ -128,24 +125,15 @@ export function ChatView({
         modelResponses,
       };
 
-      // --- ▼ 変更点： クライアント同期ロジック ▼ ---
       if (summaryExecuted && newHistoryContext) {
-        // 2. 要約が実行された場合
         console.log("[Sync] サーバー側で要約が実行されました。クライアントの履歴を同期します。");
-
         const newFullHistory = [...newHistoryContext, userMessage, assistantMessage];
-
-        // DBを新しい履歴でアトミックに上書き (db.replaceHistory を使用)
         await db.replaceHistory(conversationId, newFullHistory);
-
-        // React Stateを更新
         setMessages(newFullHistory);
       } else {
-        // 3. 通常の処理 (要約なし)
         await db.addMessage(assistantMessage);
         setMessages((prev) => [...prev, assistantMessage]);
       }
-      // --- ▲ 同期ロジックここまで ▲ ---
 
       console.log("Response saved successfully");
     } catch (error) {
@@ -160,21 +148,17 @@ export function ChatView({
     }
   };
 
-  // --- システムプロンプト用ハンドラ ---
   const handleSystemPromptChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setCurrentSystemPrompt(e.target.value);
   };
 
-  // フォーカスが外れたときにDBに保存
   const saveSystemPrompt = () => {
     if (selectedConversationData && selectedConversationData.systemPrompt !== currentSystemPrompt) {
       onUpdateConversationSystemPrompt(selectedConversationData.id, currentSystemPrompt);
       toast({ title: "システムプロンプトを保存しました", duration: 2000 });
     }
   };
-  // ------------------------------------
 
-  // コピー機能（実装済み）
   const handleCopy = (content: string) => {
     navigator.clipboard.writeText(content);
     toast({
@@ -183,81 +167,60 @@ export function ChatView({
     });
   };
 
-  // ▼ ----- 再生成機能（実装） ----- ▼
   const handleRegenerate = async (messageId: string) => {
     if (isLoading || !selectedConversationData) return;
 
-    // 1. 再生成するAIメッセージと、その直前のユーザーメッセージを見つける
     const messageIndex = messages.findIndex((m) => m.id === messageId);
     if (messageIndex < 1) {
-      // 最初のメッセージか、見つからない場合は何もしない
       return;
     }
 
     const assistantMessage = messages[messageIndex];
     const userMessage = messages[messageIndex - 1];
 
-    // 直前がユーザーメッセージでない場合は再生成しない
     if (userMessage.role !== "user" || assistantMessage.role !== "assistant") {
       toast({ title: "このメッセージは再生成できません", variant: "destructive" });
       return;
     }
 
     const conversationId = selectedConversationData.id;
-
-    // 再送する会話履歴（再生成するAIメッセージの *直前* まで）
     const historyToResend = messages.slice(0, messageIndex);
 
     setIsLoading(true);
 
     try {
-      // 2. DBとStateから、再生成するAI回答 *以降* のメッセージを削除
       await db.deleteMessagesAfter(messageId, conversationId);
-
-      // 3. UI (State) を更新
       setMessages(historyToResend);
 
-      // 4. handleSubmit と同様のロジックでAIサービスを呼び出す
       const modelSettings = await db.getModelSettings();
       const appSettings = await db.getAppSettings();
 
-      // ▼ 変更点： 再生成時も totalContentLength を渡す ▼
       const totalContentLength = historyToResend.reduce((acc, msg) => acc + msg.content.length, 0);
 
       const { content, modelResponses, summaryExecuted, newHistoryContext } =
         await llmService.generateResponseWithDetails(
-          historyToResend, // <-- AI回答の直前までの履歴
+          historyToResend,
           modelSettings,
           appSettings || {},
           currentSystemPrompt,
-          totalContentLength, // ▼ 変更点 ▼
+          totalContentLength,
         );
 
-      // (注：再生成時に要約がトリガーされた場合の処理)
-      // ここでは簡潔さのため、要約がトリガーされても、
-      // 既存の履歴の末尾に新しい回答を追加するだけに留めます。
-      // （要約が実行された場合、UIとDBの履歴に不整合が起きる可能性があるが、
-      //  handleSubmitとロジックを共通化する必要があり複雑化するため）
+      const newAssistantMessage: Message = {
+        id: `msg_${Date.now() + 1}`,
+        role: "assistant",
+        content,
+        timestamp: Date.now(),
+        conversationId,
+        modelResponses,
+      };
 
       if (summaryExecuted && newHistoryContext) {
         console.warn("[Regenerate] 再生成中に要約がトリガーされました。履歴を同期します。");
-        // 要約 + AIの回答
-        const newFullHistory = [...newHistoryContext, assistantMessage];
-        await db.replaceHistory(conversationId, newFullHistory);
-        setMessages(newFullHistory);
-        // (この場合、assistantMessage の ID が古いため、新しいIDで作り直すのが望ましい)
+        const historyWithSummary = [...newHistoryContext, newAssistantMessage];
+        await db.replaceHistory(conversationId, historyWithSummary);
+        setMessages(historyWithSummary);
       } else {
-        // 通常の再生成処理
-        const newAssistantMessage: Message = {
-          id: `msg_${Date.now() + 1}`, // 新しいID
-          role: "assistant",
-          content,
-          timestamp: Date.now(),
-          conversationId,
-          modelResponses,
-        };
-
-        // 5. 新しい回答をDBとStateに追加
         await db.addMessage(newAssistantMessage);
         setMessages((prev) => [...prev, newAssistantMessage]);
         console.log("Response regenerated successfully");
@@ -269,13 +232,90 @@ export function ChatView({
         description: error instanceof Error ? error.message : "エラーが発生しました",
         variant: "destructive",
       });
-      // エラーが発生した場合、DBとUIを再同期
       await loadMessages(conversationId);
     } finally {
       setIsLoading(false);
     }
   };
-  // ▲ ----- 再生成機能（実装） ----- ▲
+
+  const handleEditClick = (message: Message) => {
+    setEditingMessageId(message.id);
+    setEditingContent(message.content);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingMessageId(null);
+    setEditingContent("");
+  };
+
+  const handleEditAndRetry = async () => {
+    if (isLoading || !selectedConversationData || !editingMessageId) return;
+
+    const conversationId = selectedConversationData.id;
+    const newContent = editingContent.trim();
+    if (!newContent) {
+      toast({ title: "メッセージは空にできません", variant: "destructive" });
+      return;
+    }
+
+    setIsLoading(true);
+    const messageIndex = messages.findIndex((m) => m.id === editingMessageId);
+    if (messageIndex === -1) {
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      const nextMessage = messages[messageIndex + 1];
+      if (nextMessage) {
+        await db.deleteMessagesAfter(nextMessage.id, conversationId);
+      }
+
+      await db.updateMessageContent(editingMessageId, newContent);
+      const historyToResend = await db.getMessages(conversationId);
+      setMessages(historyToResend);
+
+      const modelSettings = await db.getModelSettings();
+      const appSettings = await db.getAppSettings();
+      const totalContentLength = historyToResend.reduce((acc, msg) => acc + msg.content.length, 0);
+
+      const { content, modelResponses, summaryExecuted, newHistoryContext } =
+        await llmService.generateResponseWithDetails(
+          historyToResend,
+          modelSettings,
+          appSettings || {},
+          currentSystemPrompt,
+          totalContentLength,
+        );
+
+      const assistantMessage: Message = {
+        id: `msg_${Date.now() + 1}`,
+        role: "assistant",
+        content,
+        timestamp: Date.now(),
+        conversationId,
+        modelResponses,
+      };
+
+      if (summaryExecuted && newHistoryContext) {
+        console.warn("[EditRetry] 編集・やり直し中に要約がトリガーされました。履歴を同期します。");
+        const newFullHistory = [...historyToResend, assistantMessage];
+        await db.replaceHistory(conversationId, newFullHistory);
+        setMessages(newFullHistory);
+      } else {
+        await db.addMessage(assistantMessage);
+        setMessages((prev) => [...prev, assistantMessage]);
+      }
+    } catch (error) {
+      console.error("Failed to edit and retry:", error);
+      toast({ title: "やり直しに失敗しました", variant: "destructive" });
+      await loadMessages(conversationId);
+    } finally {
+      setIsLoading(false);
+      setEditingMessageId(null);
+      setEditingContent("");
+    }
+  };
 
   const toggleExpanded = (messageId: string) => {
     setExpandedMessages((prev) => {
@@ -290,16 +330,13 @@ export function ChatView({
   };
 
   return (
-    // min-w-0 修正済み
     <div className="flex-1 flex flex-col min-w-0">
       {/* ヘッダー */}
       <header className="h-14 border-b border-border flex items-center justify-between px-4">
         <div className="flex items-center gap-3">
-          {isMobile && (
-            <Button variant="ghost" size="icon" onClick={onOpenSidebar} aria-label="サイドバーを開く">
-              <Menu className="h-5 w-5" />
-            </Button>
-          )}
+          <Button variant="ghost" size="icon" onClick={onOpenSidebar} aria-label="サイドバーを開く">
+            <Menu className="h-5 w-5" />
+          </Button>
           <h1 className="text-base font-semibold">
             {selectedConversationData ? selectedConversationData.title : "新規チャット"}
           </h1>
@@ -330,17 +367,14 @@ export function ChatView({
           </div>
         )}
         {messages.map((message) => (
-          // ▼ 変更点： React.Fragment と system role の分岐を追加 ▼
           <React.Fragment key={message.id}>
             {message.role === "system" ? (
-              // システムメッセージ (要約など) 用の表示
               <div className="flex items-center justify-center">
                 <div className="max-w-[70%] rounded-lg border bg-card px-4 py-3 text-xs text-muted-foreground italic">
                   <MarkdownRenderer content={message.content} className="text-xs" />
                 </div>
               </div>
             ) : (
-              // 既存のユーザー/アシスタントメッセージ
               <div
                 className={cn("flex gap-3", message.role === "user" ? "justify-end" : "justify-start")}
                 onMouseEnter={() => setHoveredMessageId(message.id)}
@@ -353,66 +387,86 @@ export function ChatView({
                 )}
 
                 <div className="relative max-w-[70%] group">
-                  <div
-                    className={cn(
-                      "px-4 py-3 rounded-lg",
-                      message.role === "user"
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-card text-card-foreground border border-border",
-                    )}
-                  >
-                    {message.role === "assistant" ? (
-                      <MarkdownRenderer content={message.content} className="text-sm" />
-                    ) : (
-                      <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
-                    )}
+                  {editingMessageId === message.id ? (
+                    <div className="w-full space-y-2">
+                      <Textarea
+                        value={editingContent}
+                        onChange={(e) => setEditingContent(e.target.value)}
+                        className="min-h-[80px]"
+                        autoFocus
+                      />
+                      <div className="flex justify-end gap-2">
+                        <Button variant="ghost" size="sm" onClick={handleCancelEdit}>
+                          キャンセル
+                        </Button>
+                        <Button size="sm" onClick={handleEditAndRetry} disabled={isLoading}>
+                          {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "保存して再生成"}
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      className={cn(
+                        "px-4 py-3 rounded-lg",
+                        message.role === "user"
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-card text-card-foreground border border-border",
+                      )}
+                    >
+                      {message.role === "assistant" ? (
+                        <MarkdownRenderer content={message.content} className="text-sm" />
+                      ) : (
+                        <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
+                      )}
 
-                    {message.role === "assistant" && message.modelResponses && message.modelResponses.length > 1 && (
-                      <Collapsible
-                        open={expandedMessages.has(message.id)}
-                        onOpenChange={() => toggleExpanded(message.id)}
-                        className="mt-4"
-                      >
-                        <CollapsibleTrigger asChild>
-                          <Button variant="outline" size="sm" className="w-full justify-between bg-transparent">
-                            <span className="text-xs">個別モデルの応答を表示 ({message.modelResponses.length})</span>
-                            <ChevronDown
-                              className={cn(
-                                "h-4 w-4 transition-transform",
-                                expandedMessages.has(message.id) && "rotate-180",
-                              )}
-                            />
-                          </Button>
-                        </CollapsibleTrigger>
-                        <CollapsibleContent className="mt-3 space-y-3">
-                          {message.modelResponses.map((response, index) => (
-                            <div key={index} className="border border-border rounded-md p-3 bg-muted/30">
-                              <div className="flex items-center justify-between mb-2">
-                                <span className="text-xs font-semibold text-muted-foreground">{response.model}</span>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-6 w-6"
-                                  onClick={() => handleCopy(response.content)}
-                                >
-                                  <Copy className="h-3 w-3" />
-                                </Button>
+                      {message.role === "assistant" && message.modelResponses && message.modelResponses.length > 1 && (
+                        <Collapsible
+                          open={expandedMessages.has(message.id)}
+                          onOpenChange={() => toggleExpanded(message.id)}
+                          className="mt-4"
+                        >
+                          <CollapsibleTrigger asChild>
+                            <Button variant="outline" size="sm" className="w-full justify-between bg-transparent">
+                              <span className="text-xs">個別モデルの応答を表示 ({message.modelResponses.length})</span>
+                              <ChevronDown
+                                className={cn(
+                                  "h-4 w-4 transition-transform",
+                                  expandedMessages.has(message.id) && "rotate-180",
+                                )}
+                              />
+                            </Button>
+                          </CollapsibleTrigger>
+                          <CollapsibleContent className="mt-3 space-y-3">
+                            {message.modelResponses.map((response, index) => (
+                              <div key={index} className="border border-border rounded-md p-3 bg-muted/30">
+                                <div className="flex items-center justify-between mb-2">
+                                  <span className="text-xs font-semibold text-muted-foreground">{response.model}</span>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6"
+                                    onClick={() => handleCopy(response.content)}
+                                  >
+                                    <Copy className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                                <MarkdownRenderer content={response.content} className="text-xs" />
                               </div>
-                              <MarkdownRenderer content={response.content} className="text-xs" />
-                            </div>
-                          ))}
-                        </CollapsibleContent>
-                      </Collapsible>
-                    )}
-                  </div>
+                            ))}
+                          </CollapsibleContent>
+                        </Collapsible>
+                      )}
+                    </div>
+                  )}
 
-                  {message.role === "assistant" && hoveredMessageId === message.id && !isLoading && (
-                    <div className="absolute -bottom-8 left-0 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  {message.role === "assistant" && !isLoading && (
+                    <div className="absolute -bottom-8 left-0 flex gap-1">
                       <Button
                         variant="ghost"
                         size="icon"
                         className="h-7 w-7"
                         onClick={() => handleCopy(message.content)}
+                        title="コピー"
                       >
                         <Copy className="h-3.5 w-3.5" />
                       </Button>
@@ -421,11 +475,37 @@ export function ChatView({
                         size="icon"
                         className="h-7 w-7"
                         onClick={() => handleRegenerate(message.id)}
+                        title="再生成"
                       >
                         <RefreshCw className="h-3.5 w-3.5" />
                       </Button>
                     </div>
                   )}
+
+                  {/* ▼ 変更点： ユーザーのコピー・編集ボタン (常時表示) ▼ */}
+                  {message.role === "user" && !isLoading && !editingMessageId && (
+                    <div className="absolute -bottom-8 right-0 flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => handleCopy(message.content)}
+                        title="コピー"
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => handleEditClick(message)}
+                        title="編集して再生成"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  )}
+                  {/* ▲ 変更点 */}
                 </div>
               </div>
             )}
@@ -450,11 +530,12 @@ export function ChatView({
                 handleSubmit(e);
               }
             }}
+            disabled={editingMessageId !== null} // 編集中は無効化
           />
           <Button
             type="submit"
             size="icon"
-            disabled={!input.trim() || isLoading}
+            disabled={!input.trim() || isLoading || editingMessageId !== null} // 編集中は無効化
             aria-label="送信"
             className="flex-shrink-0"
           >

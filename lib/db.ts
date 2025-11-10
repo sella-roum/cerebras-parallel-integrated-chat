@@ -2,7 +2,7 @@
 
 export interface Message {
   id: string;
-  // ▼ 変更点： "system" を追加
+  // ▼ 変更点 (フェーズ1)： "system" を追加
   role: "user" | "assistant" | "system";
   content: string;
   timestamp: number;
@@ -21,7 +21,7 @@ export interface Conversation {
   title: string;
   createdAt: number;
   updatedAt: number;
-  systemPrompt?: string;
+  systemPrompt?: string; // <-- フィールド追加
 }
 
 // ApiKey インターフェースは削除
@@ -106,7 +106,13 @@ class Database {
       const store = transaction.objectStore("conversations");
       const request = store.getAll();
 
-      request.onsuccess = () => resolve(request.result || []);
+      request.onsuccess = () => {
+        // ▼ 変更点 (フェーズ2)： 取得結果を createdAt で降順ソート
+        const sortedConversations = (request.result || []).sort(
+          (a: Conversation, b: Conversation) => b.createdAt - a.createdAt,
+        );
+        resolve(sortedConversations);
+      };
       request.onerror = () => reject(request.error);
     });
   }
@@ -161,6 +167,53 @@ class Database {
     });
   }
 
+  // ▼ 変更点 (フェーズ2)： 会話複製機能
+  async duplicateConversation(originalId: string): Promise<Conversation> {
+    if (!this.db) await this.init();
+
+    const originalConv = await new Promise<Conversation>((resolve, reject) => {
+      const tx = this.db!.transaction(["conversations"], "readonly");
+      tx.objectStore("conversations").get(originalId).onsuccess = (e) => resolve((e.target as IDBRequest).result);
+      tx.onerror = () => reject(tx.error);
+    });
+
+    if (!originalConv) {
+      throw new Error("Conversation not found");
+    }
+
+    const originalMessages = await this.getMessages(originalId);
+
+    // 1. 新しいConversationオブジェクトを作成
+    const newConversation: Conversation = {
+      ...originalConv,
+      id: `conv_${Date.now()}`,
+      title: `${originalConv.title} (コピー)`,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    // 2. メッセージを新しいIDで複製
+    const newMessages: Message[] = originalMessages.map((msg, index) => ({
+      ...msg,
+      id: `msg_${Date.now() + index + 1}`, // 新しいユニークID
+      conversationId: newConversation.id, // 新しい会話IDに紐付け
+    }));
+
+    // 3. DBに一括書き込み
+    await new Promise<void>((resolve, reject) => {
+      const tx = this.db!.transaction(["conversations", "messages"], "readwrite");
+      tx.objectStore("conversations").add(newConversation);
+      const messagesStore = tx.objectStore("messages");
+      for (const msg of newMessages) {
+        messagesStore.add(msg);
+      }
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+
+    return newConversation;
+  }
+
   // Messages
   async getMessages(conversationId: string): Promise<Message[]> {
     if (!this.db) await this.init();
@@ -183,6 +236,27 @@ class Database {
       const request = store.add(message);
 
       request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  // ▼ 変更点 (フェーズ2)： メッセージ編集機能
+  async updateMessageContent(messageId: string, newContent: string): Promise<void> {
+    if (!this.db) await this.init();
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(["messages"], "readwrite");
+      const store = transaction.objectStore("messages");
+      const request = store.get(messageId);
+
+      request.onsuccess = () => {
+        const message = request.result;
+        if (message) {
+          message.content = newContent;
+          store.put(message).onsuccess = () => resolve();
+        } else {
+          reject(new Error("Message not found"));
+        }
+      };
       request.onerror = () => reject(request.error);
     });
   }
@@ -287,6 +361,7 @@ class Database {
     });
   }
 
+  // ▼ 変更点 (フェーズ1)： この関数をまるごと追加 ▼
   /**
    * 特定の会話IDのメッセージをすべて削除し、新しいメッセージ配列で置き換えます。
    */

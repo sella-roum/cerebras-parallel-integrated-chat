@@ -1,10 +1,11 @@
 "use client";
 
 import type React from "react";
-import { useState, useEffect, useRef } from "react";
+import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Plus, Pencil, Trash2, Sun, Moon } from "lucide-react";
+// ▼ 変更点 (フェーズ2)： CopyPlus をインポート
+import { Plus, Pencil, Trash2, Sun, Moon, CopyPlus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Conversation } from "@/lib/db";
 
@@ -31,6 +32,7 @@ interface ConversationSidebarProps {
   onNewConversation: () => void;
   onDeleteConversation: (id: string) => void;
   onUpdateConversationTitle: (id: string, title: string) => void;
+  onDuplicateConversation: (id: string) => void; // ▼ 変更点 (フェーズ2)： prop を追加
 }
 
 export function ConversationSidebar({
@@ -42,6 +44,7 @@ export function ConversationSidebar({
   onNewConversation,
   onDeleteConversation,
   onUpdateConversationTitle,
+  onDuplicateConversation, // ▼ 変更点 (フェーズ2)： prop を受け取る
 }: ConversationSidebarProps) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
@@ -68,6 +71,12 @@ export function ConversationSidebar({
     cancelRenameRef.current = false;
     setEditingId(conversation.id);
     setEditingTitle(conversation.title);
+  };
+
+  // ▼ 変更点 (フェーズ2)： 複製ハンドラ
+  const handleDuplicateClick = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    onDuplicateConversation(id);
   };
 
   const handleSaveRename = () => {
@@ -134,6 +143,7 @@ export function ConversationSidebar({
             </div>
           ) : (
             <div className="p-2 space-y-1">
+              {/* (ソート対応) conversations 配列は app/page.tsx からソート済みで渡される */}
               {conversations.map((conversation) => (
                 <div
                   role="button"
@@ -177,11 +187,22 @@ export function ConversationSidebar({
                       <span className="text-sm truncate pr-16">{conversation.title}</span>
                       {(hoveredId === conversation.id || selectedConversation === conversation.id) && (
                         <div className="absolute right-2 flex gap-1">
+                          {/* ▼ 変更点 (フェーズ2)： 複製ボタンを追加 ▼ */}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={(e) => handleDuplicateClick(conversation.id, e)}
+                            title="複製"
+                          >
+                            <CopyPlus className="h-3.5 w-3.5" />
+                          </Button>
                           <Button
                             variant="ghost"
                             size="icon"
                             className="h-7 w-7"
                             onClick={(e) => handleRenameClick(conversation, e)}
+                            title="名前の変更"
                           >
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
@@ -190,6 +211,7 @@ export function ConversationSidebar({
                             size="icon"
                             className="h-7 w-7 hover:bg-destructive/10 hover:text-destructive"
                             onClick={(e) => handleDeleteClick(conversation.id, e)}
+                            title="削除"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
@@ -205,28 +227,25 @@ export function ConversationSidebar({
 
         {/* フッター */}
         <div className="p-4 border-t border-sidebar-border flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Avatar className="h-8 w-8">
-              <AvatarFallback className="bg-sidebar-primary text-sidebar-primary-foreground text-xs">AI</AvatarFallback>
-            </Avatar>
-            <span className="text-sm font-medium text-sidebar-foreground">ユーザー</span>
+          {/* ▼ 変更点 (フェーズ2)： アバターとユーザー名 div を削除 ▼ */}
+
+          {/* ▼ 変更点 (フェーズ2)： ダークモードボタンを右端に寄せるためのラッパー ▼ */}
+          <div className="w-full flex justify-end">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleDarkMode}
+              aria-label={isDark ? "ライトモードに切り替え" : "ダークモードに切り替え"}
+            >
+              {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </Button>
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={toggleDarkMode}
-            aria-label={isDark ? "ライトモードに切り替え" : "ダークモードに切り替え"}
-          >
-            {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-          </Button>
         </div>
       </div>
 
       <AlertDialog
         open={!!deleteTargetId}
         onOpenChange={(open: boolean) => {
-          // 'open' が false（モーダルが閉じられた）場合、
-          // state (deleteTargetId) を null にリセットする
           if (!open) {
             setDeleteTargetId(null);
           }

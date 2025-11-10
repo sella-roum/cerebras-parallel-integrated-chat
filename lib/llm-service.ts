@@ -9,13 +9,13 @@ export class LLMService {
     messages: Message[],
     modelSettings: ModelSettings[],
     appSettings: AppSettings,
-    systemPrompt: string | undefined,
-    totalContentLength: number,
+    systemPrompt: string | undefined, // ▼ 変更点 (フェーズ1)： undefined を許容
+    totalContentLength: number, // ▼ 変更点 (フェーズ1)： 引数を追加
   ): Promise<{
     content: string;
     modelResponses: ModelResponse[];
-    summaryExecuted: boolean;
-    newHistoryContext: Message[] | null;
+    summaryExecuted: boolean; // ▼ 変更点 (フェーズ1)： 戻り値の型を追加
+    newHistoryContext: Message[] | null; // ▼ 変更点 (フェーズ1)： 戻り値の型を追加
   }> {
     console.log("Calling Next.js API route (/api/chat)");
 
@@ -29,7 +29,7 @@ export class LLMService {
         modelSettings,
         appSettings,
         systemPrompt,
-        totalContentLength,
+        totalContentLength, // ▼ 変更点 (フェーズ1)： リクエストボディに追加
       }),
     });
 
@@ -38,6 +38,7 @@ export class LLMService {
       throw new Error(errorData.error || `APIエラー (HTTP ${response.status})`);
     }
 
+    // ▼ 変更点 (フェーズ1)： APIの新しい応答の型に合わせてキャスト
     return response.json() as Promise<{
       content: string;
       modelResponses: ModelResponse[];
@@ -56,6 +57,7 @@ export class LLMService {
     appSettings: AppSettings,
     systemPrompt?: string,
   ): Promise<string> {
+    // ▼ 変更点 (フェーズ1)： totalContentLength にダミーの0を渡す (非推奨)
     const result = await this.generateResponseWithDetails(
       messages,
       modelSettings,
