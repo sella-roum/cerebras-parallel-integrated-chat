@@ -2,17 +2,28 @@ import { createCerebras } from "@ai-sdk/cerebras";
 import { streamText } from "ai";
 import { NextRequest, NextResponse } from "next/server";
 
-// 型定義（lib/db.tsから必要に応じてインポート）
+// 型定義を lib/db.ts と一致させる
 interface Message {
+  id: string; // db.ts に合わせて id を追加
+  role: "user" | "assistant" | "system";
+  content: string;
+  timestamp: number; // db.ts に合わせて timestamp を追加
+  conversationId: string; // db.ts に合わせて conversationId を追加
+  modelResponses?: ModelResponse[]; // db.ts に合わせて modelResponses を追加
+}
+// (LlmApi に渡す用の最小限の型)
+interface LlmMessage {
   role: "user" | "assistant" | "system";
   content: string;
 }
+
 interface ModelSettings {
   modelName: string;
   temperature: number;
   maxTokens: number;
 }
 interface AppSettings {
+  summarizerModel?: ModelSettings;
   integratorModel?: ModelSettings;
 }
 interface ModelResponse {
@@ -33,11 +44,11 @@ function getApiKeys(): string[] {
  * 単一のLLM呼び出し（ストリームをテキストに集約）
  * この関数が失敗すると、フォールバックがトリガーされます。
  */
-async function callLlmApi(apiKey: string, messages: Message[], modelSettings: ModelSettings): Promise<string> {
+async function callLlmApi(apiKey: string, messages: LlmMessage[], modelSettings: ModelSettings): Promise<string> {
   const cerebras = createCerebras({ apiKey });
   const { textStream } = await streamText({
     model: cerebras(modelSettings.modelName),
-    messages: messages,
+    messages: messages, // LlmMessage[] を受け取る
     temperature: modelSettings.temperature,
     maxTokens: modelSettings.maxTokens,
   });
@@ -55,23 +66,17 @@ async function callLlmApi(apiKey: string, messages: Message[], modelSettings: Mo
  */
 async function callIntegrator(
   apiKey: string,
-  historyMessages: Message[], // <-- 引数を追加 (POSTハンドラ内の fullMessages を受け取る)
+  historyMessages: LlmMessage[], // LlmMessage[] を受け取る
   responses: ModelResponse[],
   integratorModel: ModelSettings,
 ): Promise<string> {
-  // 元の会話履歴 (historyMessages) は、[system?, ...履歴..., user (最新の質問)] を含んでいる。
-
   // 最後のユーザーメッセージ（最新の質問）を取得
   const lastUserMessage = historyMessages.at(-1);
   // 最後のユーザーメッセージ *以外* の履歴
   const historyWithoutLast = historyMessages.slice(0, -1);
 
-  // 統合モデルに渡すための新しいメッセージ配列 (Message[]) を構築
-  const promptMessages: Message[] = [
-    // 1. 最後の質問 *より前* の履歴をすべて含める
+  const promptMessages: LlmMessage[] = [
     ...historyWithoutLast,
-
-    // 2. 最後のメッセージ (user role) を、統合指示用に再構成する
     {
       role: "user",
       content: `（会話履歴はここまで）\n\n上記の会話の最後の質問（"${
@@ -111,7 +116,20 @@ export async function POST(req: NextRequest) {
 
   const shuffledApiKeys = shuffleArray(apiKeys);
 
-  const { messages, modelSettings, appSettings: rawAppSettings, systemPrompt } = await req.json();
+  // totalContentLength を受け取り、messages の型を Message[] に
+  const {
+    messages,
+    modelSettings,
+    appSettings: rawAppSettings,
+    systemPrompt,
+    totalContentLength,
+  } = (await req.json()) as {
+    messages: Message[];
+    modelSettings: (ModelSettings & { enabled: boolean })[];
+    appSettings: AppSettings | null;
+    systemPrompt?: string;
+    totalContentLength: number;
+  };
   const appSettings: AppSettings = rawAppSettings ?? {};
 
   const enabledModels: ModelSettings[] = modelSettings.filter((m: any) => m.enabled);
@@ -119,21 +137,89 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "有効な推論モデルが設定されていません" }, { status: 400 });
   }
 
+  const CONVERSATION_THRESHOLD = 10;
+  const CONTENT_LENGTH_THRESHOLD = 8000;
+
+  let processedMessages: Message[] = [...messages];
+  let didSummarize = false;
+  let newHistoryContext: Message[] | null = null;
+
+  const isTooLongByCount = processedMessages.length > CONVERSATION_THRESHOLD;
+  const isTooLongByLength = totalContentLength > CONTENT_LENGTH_THRESHOLD;
+
+  if (appSettings.summarizerModel && (isTooLongByCount || isTooLongByLength)) {
+    console.log(
+      `[Summarizer] 履歴が閾値を超えたため要約を実行します。(件数: ${processedMessages.length}, 文字数: ${totalContentLength})`,
+    );
+
+    const lastUserMessage = processedMessages.at(-1)!;
+    const messagesToSummarize = processedMessages.slice(0, -1);
+
+    let summaryContent: string | null = null;
+    let lastError: any = null;
+
+    for (const apiKey of shuffledApiKeys) {
+      try {
+        const summaryPromptMessages: LlmMessage[] = [
+          ...messagesToSummarize.map((m) => ({ role: m.role, content: m.content })),
+          {
+            role: "user",
+            content: `（指示）上記の会話履歴全体を、重要な文脈を失わないように、第三者視点で詳細な要約に圧縮してください。システムプロンプト（「${
+              systemPrompt || "なし"
+            }」）の指示も考慮に入れてください。`,
+          },
+        ];
+
+        summaryContent = await callLlmApi(apiKey, summaryPromptMessages, appSettings.summarizerModel);
+
+        if (summaryContent) break;
+      } catch (error: any) {
+        lastError = error;
+        console.warn(`[API Key Fallback] APIキー (末尾...${apiKey.slice(-4)}) で要約エラー: ${error.message}`);
+      }
+    }
+
+    if (summaryContent) {
+      didSummarize = true;
+      const summaryMessage: Message = {
+        id: `msg_summary_${Date.now()}`,
+        role: "system",
+        content: `[以前の会話の要約]\n${summaryContent}`,
+        timestamp: Date.now(),
+        conversationId: lastUserMessage.conversationId,
+      };
+
+      processedMessages = [summaryMessage, lastUserMessage];
+      newHistoryContext = [summaryMessage];
+    } else {
+      console.error("[Summarizer] すべてのAPIキーで要約に失敗しました。", lastError);
+    }
+  }
+
   // 1. システムプロンプトをメッセージの先頭に追加
-  const fullMessages: Message[] = messages.map((m: any) => ({ role: m.role, content: m.content }));
+  const fullMessages: Message[] = [...processedMessages];
   if (systemPrompt && systemPrompt.trim() !== "") {
-    fullMessages.unshift({ role: "system", content: systemPrompt });
+    fullMessages.unshift({
+      id: "system_prompt",
+      role: "system",
+      content: systemPrompt,
+      timestamp: Date.now(),
+      conversationId: messages[0]?.conversationId || "unknown",
+    });
   }
 
   // 2. APIキーのローテーションとフォールバック
   let lastError: any = null;
+
+  // callLlmApi に渡すために、最小限の型にマッピング
+  const messagesForLlm: LlmMessage[] = fullMessages.map((m) => ({ role: m.role, content: m.content }));
 
   for (const apiKey of shuffledApiKeys) {
     try {
       // 3. 並行推論
       const responses = await Promise.all(
         enabledModels.map(async (model) => {
-          const content = await callLlmApi(apiKey, fullMessages, model);
+          const content = await callLlmApi(apiKey, messagesForLlm, model); // messagesForLlm を使用
           return { model: model.modelName, provider: "cerebras", content };
         }),
       );
@@ -148,7 +234,7 @@ export async function POST(req: NextRequest) {
       if (validResponses.length > 1 && appSettings.integratorModel) {
         finalContent = await callIntegrator(
           apiKey,
-          fullMessages, // <-- 履歴を追加
+          messagesForLlm, // messagesForLlm を使用
           validResponses,
           appSettings.integratorModel,
         );
@@ -160,12 +246,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         content: finalContent,
         modelResponses: validResponses,
+        summaryExecuted: didSummarize, // ▼ 変更点： 要約フラグを返す
+        newHistoryContext: newHistoryContext, // ▼ 変更点： 要約コンテキストを返す
       });
     } catch (error: any) {
       lastError = error;
       console.warn(`[API Key Fallback] APIキー (末尾...${apiKey.slice(-4)}) でエラー: ${error.message}`);
-      // 401 (認証エラー), 429 (レートリミット) などの場合に次のキーを試す
-      // ここでは全てのエラーで次のキーを試行
     }
   }
 

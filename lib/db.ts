@@ -2,7 +2,8 @@
 
 export interface Message {
   id: string;
-  role: "user" | "assistant";
+  // ▼ 変更点： "system" を追加
+  role: "user" | "assistant" | "system";
   content: string;
   timestamp: number;
   conversationId: string;
@@ -20,7 +21,7 @@ export interface Conversation {
   title: string;
   createdAt: number;
   updatedAt: number;
-  systemPrompt?: string; // <-- フィールド追加
+  systemPrompt?: string;
 }
 
 // ApiKey インターフェースは削除
@@ -282,6 +283,51 @@ class Database {
       };
 
       transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+  }
+
+  /**
+   * 特定の会話IDのメッセージをすべて削除し、新しいメッセージ配列で置き換えます。
+   */
+  async replaceHistory(conversationId: string, newMessages: Message[]): Promise<void> {
+    if (!this.db) await this.init();
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(["messages"], "readwrite");
+      const store = transaction.objectStore("messages");
+      const index = store.index("conversationId");
+
+      let addMessagesPromise: Promise<void> | null = null;
+
+      // 1. 古いメッセージを全削除
+      const request = index.openCursor(IDBKeyRange.only(conversationId));
+      request.onsuccess = (event) => {
+        const cursor = (event.target as IDBRequest).result;
+        if (cursor) {
+          store.delete(cursor.primaryKey);
+          cursor.continue();
+        } else {
+          // 2. 削除完了後、新しいメッセージを追加
+          try {
+            for (const msg of newMessages) {
+              // 新しいメッセージの会話IDを強制
+              store.add({ ...msg, conversationId });
+            }
+            addMessagesPromise = Promise.resolve();
+          } catch (e) {
+            addMessagesPromise = Promise.reject(e);
+          }
+        }
+      };
+
+      transaction.oncomplete = () => {
+        if (addMessagesPromise) {
+          addMessagesPromise.then(resolve).catch(reject);
+        } else {
+          // メッセージが0件だった場合など
+          resolve();
+        }
+      };
       transaction.onerror = () => reject(transaction.error);
     });
   }

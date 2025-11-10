@@ -1,7 +1,6 @@
 "use client";
 
-import type React from "react";
-import { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect } from "react"; // ▼ 変更点： React をインポート
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Menu, Settings, Send, Bot, Copy, RefreshCw, Loader2, ChevronDown } from "lucide-react";
@@ -107,12 +106,18 @@ export function ChatView({
 
       console.log("Calling LLM service with settings and system prompt.");
 
-      const { content, modelResponses } = await llmService.generateResponseWithDetails(
-        nextMessages,
-        modelSettings,
-        appSettings || {},
-        currentSystemPrompt, // <-- システムプロンプトを渡す
-      );
+      // ▼ 変更点： 総文字列長を計算 ▼
+      const totalContentLength = nextMessages.reduce((acc, msg) => acc + msg.content.length, 0);
+
+      // ▼ 変更点： 拡張された応答を受け取る ▼
+      const { content, modelResponses, summaryExecuted, newHistoryContext } =
+        await llmService.generateResponseWithDetails(
+          nextMessages,
+          modelSettings,
+          appSettings || {},
+          currentSystemPrompt,
+          totalContentLength, // 文字列長を渡す
+        );
 
       const assistantMessage: Message = {
         id: `msg_${Date.now() + 1}`,
@@ -123,8 +128,25 @@ export function ChatView({
         modelResponses,
       };
 
-      await db.addMessage(assistantMessage);
-      setMessages((prev) => [...prev, assistantMessage]);
+      // --- ▼ 変更点： クライアント同期ロジック ▼ ---
+      if (summaryExecuted && newHistoryContext) {
+        // 2. 要約が実行された場合
+        console.log("[Sync] サーバー側で要約が実行されました。クライアントの履歴を同期します。");
+
+        const newFullHistory = [...newHistoryContext, userMessage, assistantMessage];
+
+        // DBを新しい履歴でアトミックに上書き (db.replaceHistory を使用)
+        await db.replaceHistory(conversationId, newFullHistory);
+
+        // React Stateを更新
+        setMessages(newFullHistory);
+      } else {
+        // 3. 通常の処理 (要約なし)
+        await db.addMessage(assistantMessage);
+        setMessages((prev) => [...prev, assistantMessage]);
+      }
+      // --- ▲ 同期ロジックここまで ▲ ---
+
       console.log("Response saved successfully");
     } catch (error) {
       console.error("Failed to generate response:", error);
@@ -199,26 +221,47 @@ export function ChatView({
       const modelSettings = await db.getModelSettings();
       const appSettings = await db.getAppSettings();
 
-      const { content, modelResponses } = await llmService.generateResponseWithDetails(
-        historyToResend, // <-- AI回答の直前までの履歴
-        modelSettings,
-        appSettings || {},
-        currentSystemPrompt,
-      );
+      // ▼ 変更点： 再生成時も totalContentLength を渡す ▼
+      const totalContentLength = historyToResend.reduce((acc, msg) => acc + msg.content.length, 0);
 
-      const newAssistantMessage: Message = {
-        id: `msg_${Date.now() + 1}`, // 新しいID
-        role: "assistant",
-        content,
-        timestamp: Date.now(),
-        conversationId,
-        modelResponses,
-      };
+      const { content, modelResponses, summaryExecuted, newHistoryContext } =
+        await llmService.generateResponseWithDetails(
+          historyToResend, // <-- AI回答の直前までの履歴
+          modelSettings,
+          appSettings || {},
+          currentSystemPrompt,
+          totalContentLength, // ▼ 変更点 ▼
+        );
 
-      // 5. 新しい回答をDBとStateに追加
-      await db.addMessage(newAssistantMessage);
-      setMessages((prev) => [...prev, newAssistantMessage]);
-      console.log("Response regenerated successfully");
+      // (注：再生成時に要約がトリガーされた場合の処理)
+      // ここでは簡潔さのため、要約がトリガーされても、
+      // 既存の履歴の末尾に新しい回答を追加するだけに留めます。
+      // （要約が実行された場合、UIとDBの履歴に不整合が起きる可能性があるが、
+      //  handleSubmitとロジックを共通化する必要があり複雑化するため）
+
+      if (summaryExecuted && newHistoryContext) {
+        console.warn("[Regenerate] 再生成中に要約がトリガーされました。履歴を同期します。");
+        // 要約 + AIの回答
+        const newFullHistory = [...newHistoryContext, assistantMessage];
+        await db.replaceHistory(conversationId, newFullHistory);
+        setMessages(newFullHistory);
+        // (この場合、assistantMessage の ID が古いため、新しいIDで作り直すのが望ましい)
+      } else {
+        // 通常の再生成処理
+        const newAssistantMessage: Message = {
+          id: `msg_${Date.now() + 1}`, // 新しいID
+          role: "assistant",
+          content,
+          timestamp: Date.now(),
+          conversationId,
+          modelResponses,
+        };
+
+        // 5. 新しい回答をDBとStateに追加
+        await db.addMessage(newAssistantMessage);
+        setMessages((prev) => [...prev, newAssistantMessage]);
+        console.log("Response regenerated successfully");
+      }
     } catch (error) {
       console.error("Failed to regenerate response:", error);
       toast({
@@ -287,89 +330,106 @@ export function ChatView({
           </div>
         )}
         {messages.map((message) => (
-          <div
-            key={message.id}
-            className={cn("flex gap-3", message.role === "user" ? "justify-end" : "justify-start")}
-            onMouseEnter={() => setHoveredMessageId(message.id)}
-            onMouseLeave={() => setHoveredMessageId(null)}
-          >
-            {message.role === "assistant" && (
-              <div className="w-8 h-8 rounded-md bg-primary flex items-center justify-center flex-shrink-0">
-                <Bot className="w-5 h-5 text-primary-foreground" />
+          // ▼ 変更点： React.Fragment と system role の分岐を追加 ▼
+          <React.Fragment key={message.id}>
+            {message.role === "system" ? (
+              // システムメッセージ (要約など) 用の表示
+              <div className="flex items-center justify-center">
+                <div className="max-w-[70%] rounded-lg border bg-card px-4 py-3 text-xs text-muted-foreground italic">
+                  <MarkdownRenderer content={message.content} className="text-xs" />
+                </div>
+              </div>
+            ) : (
+              // 既存のユーザー/アシスタントメッセージ
+              <div
+                className={cn("flex gap-3", message.role === "user" ? "justify-end" : "justify-start")}
+                onMouseEnter={() => setHoveredMessageId(message.id)}
+                onMouseLeave={() => setHoveredMessageId(null)}
+              >
+                {message.role === "assistant" && (
+                  <div className="w-8 h-8 rounded-md bg-primary flex items-center justify-center flex-shrink-0">
+                    <Bot className="w-5 h-5 text-primary-foreground" />
+                  </div>
+                )}
+
+                <div className="relative max-w-[70%] group">
+                  <div
+                    className={cn(
+                      "px-4 py-3 rounded-lg",
+                      message.role === "user"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-card text-card-foreground border border-border",
+                    )}
+                  >
+                    {message.role === "assistant" ? (
+                      <MarkdownRenderer content={message.content} className="text-sm" />
+                    ) : (
+                      <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
+                    )}
+
+                    {message.role === "assistant" && message.modelResponses && message.modelResponses.length > 1 && (
+                      <Collapsible
+                        open={expandedMessages.has(message.id)}
+                        onOpenChange={() => toggleExpanded(message.id)}
+                        className="mt-4"
+                      >
+                        <CollapsibleTrigger asChild>
+                          <Button variant="outline" size="sm" className="w-full justify-between bg-transparent">
+                            <span className="text-xs">個別モデルの応答を表示 ({message.modelResponses.length})</span>
+                            <ChevronDown
+                              className={cn(
+                                "h-4 w-4 transition-transform",
+                                expandedMessages.has(message.id) && "rotate-180",
+                              )}
+                            />
+                          </Button>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent className="mt-3 space-y-3">
+                          {message.modelResponses.map((response, index) => (
+                            <div key={index} className="border border-border rounded-md p-3 bg-muted/30">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs font-semibold text-muted-foreground">{response.model}</span>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6"
+                                  onClick={() => handleCopy(response.content)}
+                                >
+                                  <Copy className="h-3 w-3" />
+                                </Button>
+                              </div>
+                              <MarkdownRenderer content={response.content} className="text-xs" />
+                            </div>
+                          ))}
+                        </CollapsibleContent>
+                      </Collapsible>
+                    )}
+                  </div>
+
+                  {message.role === "assistant" && hoveredMessageId === message.id && !isLoading && (
+                    <div className="absolute -bottom-8 left-0 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => handleCopy(message.content)}
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => handleRegenerate(message.id)}
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
-
-            <div className="relative max-w-[70%] group">
-              <div
-                className={cn(
-                  "px-4 py-3 rounded-lg",
-                  message.role === "user"
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-card text-card-foreground border border-border",
-                )}
-              >
-                {message.role === "assistant" ? (
-                  <MarkdownRenderer content={message.content} className="text-sm" />
-                ) : (
-                  <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
-                )}
-
-                {message.role === "assistant" && message.modelResponses && message.modelResponses.length > 1 && (
-                  <Collapsible
-                    open={expandedMessages.has(message.id)}
-                    onOpenChange={() => toggleExpanded(message.id)}
-                    className="mt-4"
-                  >
-                    <CollapsibleTrigger asChild>
-                      <Button variant="outline" size="sm" className="w-full justify-between bg-transparent">
-                        <span className="text-xs">個別モデルの応答を表示 ({message.modelResponses.length})</span>
-                        <ChevronDown
-                          className={cn(
-                            "h-4 w-4 transition-transform",
-                            expandedMessages.has(message.id) && "rotate-180",
-                          )}
-                        />
-                      </Button>
-                    </CollapsibleTrigger>
-                    <CollapsibleContent className="mt-3 space-y-3">
-                      {message.modelResponses.map((response, index) => (
-                        <div key={index} className="border border-border rounded-md p-3 bg-muted/30">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-xs font-semibold text-muted-foreground">{response.model}</span>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-6 w-6"
-                              onClick={() => handleCopy(response.content)}
-                            >
-                              <Copy className="h-3 w-3" />
-                            </Button>
-                          </div>
-                          <MarkdownRenderer content={response.content} className="text-xs" />
-                        </div>
-                      ))}
-                    </CollapsibleContent>
-                  </Collapsible>
-                )}
-              </div>
-
-              {/*
-                isLoading中はボタンを非表示にするか、
-                特定のメッセージがローディング中かなどを管理する必要があるが、
-                現状はシンプルに isLoading で制御
-              */}
-              {message.role === "assistant" && hoveredMessageId === message.id && !isLoading && (
-                <div className="absolute -bottom-8 left-0 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleCopy(message.content)}>
-                    <Copy className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleRegenerate(message.id)}>
-                    <RefreshCw className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              )}
-            </div>
-          </div>
+          </React.Fragment>
         ))}
         <div ref={messagesEndRef} />
       </div>

@@ -9,8 +9,14 @@ export class LLMService {
     messages: Message[],
     modelSettings: ModelSettings[],
     appSettings: AppSettings,
-    systemPrompt?: string, // 会話ごとのシステムプロンプト
-  ): Promise<{ content: string; modelResponses: ModelResponse[] }> {
+    systemPrompt: string | undefined,
+    totalContentLength: number,
+  ): Promise<{
+    content: string;
+    modelResponses: ModelResponse[];
+    summaryExecuted: boolean;
+    newHistoryContext: Message[] | null;
+  }> {
     console.log("Calling Next.js API route (/api/chat)");
 
     const response = await fetch("/api/chat", {
@@ -23,6 +29,7 @@ export class LLMService {
         modelSettings,
         appSettings,
         systemPrompt,
+        totalContentLength,
       }),
     });
 
@@ -31,11 +38,17 @@ export class LLMService {
       throw new Error(errorData.error || `APIエラー (HTTP ${response.status})`);
     }
 
-    return response.json();
+    return response.json() as Promise<{
+      content: string;
+      modelResponses: ModelResponse[];
+      summaryExecuted: boolean;
+      newHistoryContext: Message[] | null;
+    }>;
   }
 
   /**
    * generateResponseWithDetailsのラッパー
+   * (注: このラッパーは引数が合わなくなるため、呼び出し側で generateResponseWithDetails を直接使用することを推奨)
    */
   async generateResponse(
     messages: Message[],
@@ -43,7 +56,13 @@ export class LLMService {
     appSettings: AppSettings,
     systemPrompt?: string,
   ): Promise<string> {
-    const result = await this.generateResponseWithDetails(messages, modelSettings, appSettings, systemPrompt);
+    const result = await this.generateResponseWithDetails(
+      messages,
+      modelSettings,
+      appSettings,
+      systemPrompt,
+      0, // このラッパーは使われなくなる想定
+    );
     return result.content;
   }
 }
