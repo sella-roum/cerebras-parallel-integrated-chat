@@ -50,7 +50,7 @@ async function callLlmApi(apiKey: string, messages: LlmMessage[], modelSettings:
     model: cerebras(modelSettings.modelName),
     messages: messages, // LlmMessage[] を受け取る
     temperature: modelSettings.temperature,
-    maxTokens: modelSettings.maxTokens,
+    maxOutputTokens: modelSettings.maxTokens,
   });
 
   let fullText = "";
