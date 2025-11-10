@@ -436,7 +436,14 @@ class Database {
       const store = transaction.objectStore("modelSettings");
       const request = store.getAll();
 
-      request.onsuccess = () => resolve(request.result || []);
+      request.onsuccess = () => {
+        const stored = (request.result || []) as ModelSettings[];
+        const normalized = stored.map((setting) => ({
+          ...setting,
+          enabled: setting.enabled ?? true,
+        }));
+        resolve(normalized);
+      };
       request.onerror = () => reject(request.error);
     });
   }

@@ -22,6 +22,7 @@ export function SummarizerModel() {
   const [temperature, setTemperature] = useState(0.3);
   const [maxTokens, setMaxTokens] = useState(30000);
   const [popoverOpen, setPopoverOpen] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
 
   // マウント時にDBから設定を読み込む
   useEffect(() => {
@@ -41,15 +42,18 @@ export function SummarizerModel() {
       }
     } catch (error) {
       console.error("Failed to load summarizer settings:", error);
+    } finally {
+      setHasLoaded(true);
     }
   };
 
   // いずれかの設定値が変更されたら、自動でDBに保存
   useEffect(() => {
-    if (modelName) {
-      saveSettings();
+    if (!hasLoaded || !modelName) {
+      return;
     }
-  }, [modelName, temperature, maxTokens]);
+    saveSettings();
+  }, [hasLoaded, modelName, temperature, maxTokens]);
 
   /**
    * 現在のstateを `appSettings.summarizerModel` としてDBに保存します。
@@ -123,11 +127,6 @@ export function SummarizerModel() {
               </Command>
             </PopoverContent>
           </Popover>
-          {/*
-            TODO: この説明文は正しくないようです。
-            このモデルは `app/api/chat/route.ts` で履歴の要約（圧縮）に使用されています。
-            会話タイトルの自動生成ロジックは、`chat-view.tsx` の `handleSubmit` 内にあります。
-          */}
           <p className="text-xs text-muted-foreground">会話履歴が長くなった場合に要約（圧縮）するために使用されます</p>
         </div>
         {/* Temperature */}

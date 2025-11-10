@@ -36,8 +36,6 @@
     "**/*.tsx",
     ".next/types/**/*.ts", // Next.js がビルド時に生成する型定義
     ".next/dev/types/**/*.ts",
-    // (Windows環境用のパス)
-    ".next\\dev/types/**/*.ts",
     ".next\\dev/types/**/*.ts"
   ],
   // --- 除外ファイル ---

@@ -7,7 +7,7 @@ const nextConfig = {
      * ビルド時の型チェックを一時的に無視します。
      * (ローカル開発では `pnpm lint` やエディタで型チェックが実行されます)
      */
-    ignoreBuildErrors: true,
+    ignoreBuildErrors: false,
   },
   images: {
     /**

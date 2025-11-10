@@ -274,8 +274,14 @@ export function ChatView({
       // 6. 再生成中に要約がトリガーされた場合の処理
       if (summaryExecuted && newHistoryContext) {
         console.warn("[Regenerate] 再生成中に要約がトリガーされました。履歴を同期します。");
-        // この場合、履歴は「要約＋新しいアシスタント応答」になる
-        const historyWithSummary = [...newHistoryContext, newAssistantMessage];
+
+        // historyToResend の最後のメッセージ（＝ユーザーの質問）を履歴に含める
+        const lastUserMessage = historyToResend.at(-1);
+        const historyWithSummary =
+          lastUserMessage && lastUserMessage.role === "user"
+            ? [...newHistoryContext, lastUserMessage, newAssistantMessage]
+            : [...newHistoryContext, newAssistantMessage]; // フォールバック
+
         await db.replaceHistory(conversationId, historyWithSummary);
         setMessages(historyWithSummary);
       } else {
@@ -377,9 +383,14 @@ export function ChatView({
       // 7. 編集・やり直し中に要約がトリガーされた場合の処理
       if (summaryExecuted && newHistoryContext) {
         console.warn("[EditRetry] 編集・やり直し中に要約がトリガーされました。履歴を同期します。");
-        // この場合、履歴は「編集された履歴＋新しいアシスタント応答」になる
-        // (historyToResendは既に編集済みなので、summaryContextは使わずそのまま追加)
-        const newFullHistory = [...historyToResend, assistantMessage];
+
+        // historyToResend の最後のメッセージ（＝編集済みのユーザー質問）を履歴に含める
+        const editedUserMessage = historyToResend.at(-1);
+        const newFullHistory =
+          editedUserMessage && editedUserMessage.role === "user"
+            ? [...newHistoryContext, editedUserMessage, assistantMessage]
+            : [...newHistoryContext, assistantMessage]; // フォールバック
+
         await db.replaceHistory(conversationId, newFullHistory);
         setMessages(newFullHistory);
       } else {

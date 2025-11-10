@@ -50,7 +50,8 @@ export function ApiDataTab() {
       a.href = url;
       a.download = `chat-history-${Date.now()}.json`;
       a.click();
-      URL.revokeObjectURL(url); // メモリリーク防止
+
+      setTimeout(() => URL.revokeObjectURL(url), 0); // メモリリーク防止
 
       toast({
         title: "履歴をエクスポートしました",

@@ -64,7 +64,7 @@ export function InferenceModels() {
   /**
    * 新しいデフォルトの推論モデルをリストとDBに追加します。
    */
-  const addModel = () => {
+  const addModel = async () => {
     const newModel: ModelSettings = {
       id: `model_${Date.now()}`,
       provider: "cerebras",
@@ -73,9 +73,18 @@ export function InferenceModels() {
       maxTokens: 30000,
       enabled: true,
     };
-    // DBにも保存
-    db.saveModelSettings(newModel);
-    setModels([...models, newModel]);
+
+    try {
+      await db.saveModelSettings(newModel);
+      setModels((prev) => [...prev, newModel]);
+    } catch (error) {
+      console.error("Failed to save model settings:", error);
+      toast({
+        title: "保存に失敗しました",
+        description: "ストレージ容量を確認してください。",
+        variant: "destructive",
+      });
+    }
   };
 
   /**

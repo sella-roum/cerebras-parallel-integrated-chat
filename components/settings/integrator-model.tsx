@@ -22,6 +22,7 @@ export function IntegratorModel() {
   const [temperature, setTemperature] = useState(0.5);
   const [maxTokens, setMaxTokens] = useState(30000);
   const [popoverOpen, setPopoverOpen] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
 
   // マウント時にDBから設定を読み込む
   useEffect(() => {
@@ -41,15 +42,18 @@ export function IntegratorModel() {
       }
     } catch (error) {
       console.error("Failed to load integrator settings:", error);
+    } finally {
+      setHasLoaded(true);
     }
   };
 
   // いずれかの設定値が変更されたら、自動でDBに保存
   useEffect(() => {
-    if (modelName) {
-      saveSettings();
+    if (!hasLoaded || !modelName) {
+      return;
     }
-  }, [modelName, temperature, maxTokens]);
+    saveSettings();
+  }, [hasLoaded, modelName, temperature, maxTokens]);
 
   /**
    * 現在のstateを `appSettings.integratorModel` としてDBに保存します。

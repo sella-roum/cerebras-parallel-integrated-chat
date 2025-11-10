@@ -80,8 +80,7 @@ export default function Home() {
       systemPrompt: "",
     };
     await db.createConversation(newConversation);
-    // 新しい会話をリストの先頭に追加（降順表示のため）
-    setConversations([newConversation, ...conversations]);
+    setConversations((prev) => [newConversation, ...prev]);
     setSelectedConversationId(newConversation.id);
   };
 
@@ -91,7 +90,7 @@ export default function Home() {
    */
   const handleDeleteConversation = async (id: string) => {
     await db.deleteConversation(id);
-    setConversations(conversations.filter((c) => c.id !== id));
+    setConversations((prev) => prev.filter((c) => c.id !== id));
     // 削除した会話が選択中だった場合、選択を解除
     if (selectedConversationId === id) {
       setSelectedConversationId(null);
@@ -106,10 +105,10 @@ export default function Home() {
   const handleUpdateConversationTitle = async (id: string, title: string) => {
     const conversation = conversations.find((c) => c.id === id);
     if (conversation) {
-      const updated = { ...conversation, title, updatedAt: Date.now() };
+      const updatedAt = Date.now();
+      const updated = { ...conversation, title, updatedAt };
       await db.updateConversation(updated);
-      // ローカルのstateも更新
-      setConversations(conversations.map((c) => (c.id === id ? updated : c)));
+      setConversations((prev) => prev.map((c) => (c.id === id ? updated : c)));
     }
   };
 
@@ -121,10 +120,10 @@ export default function Home() {
   const handleUpdateConversationSystemPrompt = async (id: string, systemPrompt: string) => {
     const conversation = conversations.find((c) => c.id === id);
     if (conversation) {
-      const updated = { ...conversation, systemPrompt, updatedAt: Date.now() };
+      const updatedAt = Date.now();
+      const updated = { ...conversation, systemPrompt, updatedAt };
       await db.updateConversation(updated);
-      // ローカルのstateも更新
-      setConversations(conversations.map((c) => (c.id === id ? updated : c)));
+      setConversations((prev) => prev.map((c) => (c.id === id ? updated : c)));
     }
   };
 
@@ -136,9 +135,9 @@ export default function Home() {
     try {
       const newConversation = await db.duplicateConversation(id);
 
-      // 新しい会話をリストの先頭に追加
-      setConversations([newConversation, ...conversations]);
-      // 複製した会話を選択状態にする
+      setConversations((prev) => [newConversation, ...prev]);
+
+      // 新しく複製した会話を選択状態にする
       setSelectedConversationId(newConversation.id);
 
       toast({

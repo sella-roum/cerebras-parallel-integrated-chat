@@ -236,7 +236,7 @@ export function useToast() {
         listeners.splice(index, 1);
       }
     };
-  }, [state]); // stateの参照が変わることはないが、Reactの規約に従う
+  }, []); // stateの参照が変わることはないが、Reactの規約に従う
 
   return {
     ...state, // 現在の { toasts: [] } を展開
