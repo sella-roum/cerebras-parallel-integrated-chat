@@ -11,19 +11,27 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
-
 import { DEFAULT_CEREBRAS_MODELS } from "@/lib/constants";
 
+/**
+ * 複数の応答をレビューし「最終回答」を生成する
+ * 「統合モデル」を設定するためのコンポーネント
+ */
 export function IntegratorModel() {
   const [modelName, setModelName] = useState("zai-glm-4.6");
   const [temperature, setTemperature] = useState(0.5);
   const [maxTokens, setMaxTokens] = useState(30000);
-  const [popoverOpen, setPopoverOpen] = useState(false); // Popoverの開閉state
+  const [popoverOpen, setPopoverOpen] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
 
+  // マウント時にDBから設定を読み込む
   useEffect(() => {
     loadSettings();
   }, []);
 
+  /**
+   * IndexedDBから統合モデル設定（appSettings.integratorModel）を読み込みます。
+   */
   const loadSettings = async () => {
     try {
       const settings = await db.getAppSettings();
@@ -34,20 +42,27 @@ export function IntegratorModel() {
       }
     } catch (error) {
       console.error("Failed to load integrator settings:", error);
+    } finally {
+      setHasLoaded(true);
     }
   };
 
+  // いずれかの設定値が変更されたら、自動でDBに保存
   useEffect(() => {
-    if (modelName) {
-      saveSettings();
+    if (!hasLoaded || !modelName) {
+      return;
     }
-  }, [modelName, temperature, maxTokens]);
+    saveSettings();
+  }, [hasLoaded, modelName, temperature, maxTokens]);
 
+  /**
+   * 現在のstateを `appSettings.integratorModel` としてDBに保存します。
+   */
   const saveSettings = async () => {
     try {
       const currentSettings = await db.getAppSettings();
       await db.saveAppSettings({
-        ...currentSettings,
+        ...currentSettings, // 既存の要約モデル設定などを保持
         integratorModel: {
           provider: "cerebras",
           modelName,
@@ -67,13 +82,17 @@ export function IntegratorModel() {
         <CardTitle>統合モデル</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* モデル名 (ComboBox) */}
         <div className="space-y-2">
           <Label htmlFor="integrator-model">モデル名</Label>
-
-          {/* ▼ InputをComboBoxに置き換え ▼ */}
           <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
             <PopoverTrigger asChild>
-              <Button variant="outline" role="combobox" className="w-full justify-between font-mono">
+              <Button
+                variant="outline"
+                role="combobox"
+                className="w-full justify-between font-mono"
+                id="integrator-model"
+              >
                 {modelName || "モデルを選択..."}
                 <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
               </Button>
@@ -108,10 +127,9 @@ export function IntegratorModel() {
               </Command>
             </PopoverContent>
           </Popover>
-          {/* ▲ ComboBox ▲ */}
-
           <p className="text-xs text-muted-foreground">複数のモデルからの応答を統合する際に使用します</p>
         </div>
+        {/* Temperature */}
         <div className="space-y-2">
           <Label htmlFor="integrator-temperature">Temperature: {temperature}</Label>
           <Slider
@@ -123,6 +141,7 @@ export function IntegratorModel() {
             onValueChange={([value]) => setTemperature(value)}
           />
         </div>
+        {/* 最大トークン数 */}
         <div className="space-y-2">
           <Label htmlFor="integrator-tokens">最大トークン数</Label>
           <Input
@@ -130,7 +149,7 @@ export function IntegratorModel() {
             type="number"
             value={maxTokens}
             onChange={(e) => setMaxTokens(Number.parseInt(e.target.value) || 0)}
-            placeholder="2000"
+            placeholder="30000"
           />
         </div>
       </CardContent>

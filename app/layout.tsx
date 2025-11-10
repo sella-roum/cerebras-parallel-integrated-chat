@@ -1,26 +1,21 @@
 import type React from "react";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-// import { Analytics } from '@vercel/analytics/next'
 import { Toaster } from "@/components/ui/toaster";
 import "./globals.css";
 
+// Vercelが開発したフォント 'Geist' を読み込みます
 const _geist = Geist({ subsets: ["latin"] });
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
+/**
+ * アプリケーションの基本メタデータ
+ */
 export const metadata: Metadata = {
-  title: "マルチLLMチャット",
+  title: "Cerebras Parallel Integrated Chat",
   description: "複数のLLMを統合した高機能チャットアプリケーション",
   icons: {
     icon: [
-      {
-        url: "/icon-light-32x32.png",
-        media: "(prefers-color-scheme: light)",
-      },
-      {
-        url: "/icon-dark-32x32.png",
-        media: "(prefers-color-scheme: dark)",
-      },
       {
         url: "/icon.svg",
         type: "image/svg+xml",
@@ -30,6 +25,11 @@ export const metadata: Metadata = {
   },
 };
 
+/**
+ * ルートレイアウトコンポーネント
+ * すべてのページで共通の <html> と <body> タグを定義します。
+ * @param {Readonly<{ children: React.ReactNode }>} props - Reactの子要素
+ */
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -38,9 +38,11 @@ export default function RootLayout({
   return (
     <html lang="ja" suppressHydrationWarning>
       <body className={`font-sans antialiased`}>
+        {/* アプリケーション本体 */}
         {children}
+
+        {/* useToastフックで使用するトースト（通知）コンポーネント */}
         <Toaster />
-        {/* <Analytics /> */}
       </body>
     </html>
   );

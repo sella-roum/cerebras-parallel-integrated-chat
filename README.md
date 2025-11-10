@@ -1,30 +1,125 @@
-# UI 実装
+# Cerebras Parallel Integrated Chat (マルチLLM並行統合チャット)
 
-_Automatically synced with your [v0.app](https://v0.app) deployments_
+これは、Next.js 16（App Router）、Vercel AI SDK、およびCerebras AI SDKを使用して構築された、高機能なチャットWebアプリケーションです。
 
-[![Deployed on Vercel](https://img.shields.io/badge/Deployed%20on-Vercel-black?style=for-the-badge&logo=vercel)](https://vercel.com/sellas-projects/v0-ui)
-[![Built with v0](https://img.shields.io/badge/Built%20with-v0.app-black?style=for-the-badge)](https://v0.app/chat/uPdobHe4882)
+このプロジェクトの最大の特徴は、単一のLLMと対話するのではなく、**複数のLLMに同時にリクエストを送信（並行推論）し、それらの回答を専用の「統合モデル」がレビューして単一の高品質な最終回答を生成**する点にあります。
 
-## Overview
+すべての会話履歴、メッセージ、モデル設定は、サーバーサイドのデータベースを必要とせず、すべてクライアント（ブラウザ）のIndexedDBに保存されます。
 
-This repository will stay in sync with your deployed chats on [v0.app](https://v0.app).
-Any changes you make to your deployed app will be automatically pushed to this repository from [v0.app](https://v0.app).
+---
 
-## Deployment
+## 1. 主な機能
 
-Your project is live at:
+- **並行推論 (Parallel Inference):**
+  - 設定画面から、推論に使用する複数のCerebrasモデルを動的に追加・設定できます。
+  - ユーザーがメッセージを送信すると、有効化されたすべてのモデルが同時にリクエストを受け取ります。
+- **応答の統合 (Response Integration):**
+  - 各モデルからの回答を、専用の「統合モデル」がレビューし、それらを基に最も包括的で高品質な「最終回答」を生成します。
+- **自動コンテキスト圧縮 (Context Compression):**
+  - 会話が長くなった場合（メッセージ件数または総文字列長の閾値を超える）、古い履歴を「要約モデル」が自動で要約（圧縮）します。
+  - 圧縮された要約は `"system"` ロールとして履歴に保存され、以降のコンテキストとして利用されます。
+- **クライアントサイド・ストレージ:**
+  - 会話履歴、メッセージ（要約を含む）、およびすべてのモデル設定は、ブラウザのIndexedDB（`lib/db.ts`）に永続化されます。
+  - サーバー側のデータベースや認証は不要です。
+- **堅牢なAPIキー管理:**
+  - APIキーはクライアント側には保存されず、Next.jsのAPIルート（サーバーサイド）の環境変数で安全に管理されます。
+  - 複数のAPIキーを登録でき、リクエストごとにランダムにシャッフルされます。レートリミット等でエラーが発生した場合は、自動的に別のキーを使用して再試行するフォールバック機能が実装されています。
+- **高度なチャットUI機能:**
+  - **メッセージ編集・やり直し:** ユーザーが送信したメッセージを編集し、そこから会話を再生成（やり直し）できます。
+  - **AI回答の再生成:** AIの回答を再生成させることができます。
+  - **操作ボタン常時表示:** ユーザーおよびAIのメッセージ操作ボタン（コピー、編集、再生成）が常に表示されます。
+  - **個別応答の表示:** AIの「最終回答」と共に、その元となった各モデルの「個別応答」も折りたたみ形式で確認できます。
+- **サイドバー機能:**
+  - **会話の複製:** サイドバーから既存の会話（履歴とシステムプロンプト）をコピーできます。
+  - **降順ソート:** 会話リストは常に「作成時刻の降順」（新しいものが上）で表示されます。
+  - **開閉トグル:** デスクトップ・モバイルを問わず、サイドバーの開閉が可能です。
+- **高度なカスタマイズ:**
+  - **会話ごとシステムプロンプト:** 各会話タブごとに個別のシステムプロンプトを設定できます。
+  - **モデル設定:** 推論モデル、統合モデル、要約モデルを、パラメータ（Temperature, Max Tokens）含めUIから自由に設定できます。
+  - **データ管理:** 会話履歴のエクスポート（JSON）、全履歴の削除機能。
 
-**[https://vercel.com/sellas-projects/v0-ui](https://vercel.com/sellas-projects/v0-ui)**
+---
 
-## Build your app
+## 2. 使用技術 (主要ライブラリ)
 
-Continue building your app on:
+`package.json` に基づく主要な技術スタックです。
 
-**[https://v0.app/chat/uPdobHe4882](https://v0.app/chat/uPdobHe4882)**
+- **フレームワーク:** Next.js 16 (App Router)
+- **UI:** React 19
+- **言語:** TypeScript 5.x
+- **AI:** Vercel AI SDK (`ai`), Cerebras AI SDK (`@ai-sdk/cerebras`)
+- **UIコンポーネント:** shadcn/ui, Radix UI
+- **スタイリング:** Tailwind CSS 4
+- **データストレージ:** IndexedDB (ブラウザ)
+- **アイコン:** `lucide-react`
+- **ビルドツール:** Webpack (`next dev --webpack` で指定)
 
-## How It Works
+---
 
-1. Create and modify your project using [v0.app](https://v0.app)
-2. Deploy your chats from the v0 interface
-3. Changes are automatically pushed to this repository
-4. Vercel deploys the latest version from this repository
+## 3. プロジェクトの核心ロジック (`app/api/chat/route.ts`)
+
+このアプリケーションの頭脳は `app/api/chat/route.ts` です。
+
+1.  **APIキー取得とシャッフル:**
+    - `process.env.CEREBRAS_API_KEYS` からカンマ区切りのAPIキーリストを取得します。
+    - `shuffleArray` 関数でキーの順序をランダム化し、単一のキーへの負荷集中を防ぎます。
+2.  **コンテキスト圧縮 (要約):**
+    - クライアントから現在の「メッセージ件数」と「総文字列長」を受け取ります。
+    - どちらかが定義された閾値（例: 10件 / 8000文字）を超えている場合、`appSettings.summarizerModel` を使用して古い履歴を要約します。
+    - 以降の処理で使用するメッセージ履歴を「要約メッセージ」＋「最新のユーザーメッセージ」に置き換えます。
+3.  **並行推論 (Parallel Inference):**
+    - 圧縮（または非圧縮）された履歴を、`enabledModels`（有効なモデル設定の配列）に対して `Promise.all` で並行実行します。
+4.  **統合 (Integration):**
+    - 並行推論で得られたすべての有効な応答 (`validResponse`) を収集します。
+    - `callIntegrator` 関数を呼び出し、現在の会話履歴（要約済みの場合あり）と、各モデルの応答をすべてコンテキストとして「統合モデル」に渡します。
+    - 統合モデルには「これらの応答をレビューし、会話の文脈を踏まえて、単一の最終回答を生成してください」という特別な指示が与えられます。
+5.  **フォールバック:**
+    - 要約、推論、統合のいずれかのステップでエラー（APIキー認証エラーやレートリミットなど）が発生した場合、`try...catch` ブロックがエラーを捕捉します。
+    - APIキーのループ処理により、次のシャッフルされたAPIキーを使用して、プロセス全体が再試行されます。
+6.  **応答:**
+    - 最終的な統合コンテンツ、各モデルの個別応答、および「要約が実行されたか (`summaryExecuted`)」のフラグと「新しい要約 (`newHistoryContext`)」をクライアントに返します。
+    - クライアント（`chat-view.tsx`）は、要約が実行された場合、ローカルのIndexedDBの履歴をサーバーから返された新しい履歴で置き換えます（`db.replaceHistory`）。
+
+---
+
+## 4. セットアップと実行方法
+
+1.  **依存関係のインストール:**
+
+    ```bash
+    pnpm install
+    ```
+
+2.  **環境変数の設定:**
+    - プロジェクトルートに `.env.local` ファイルを作成します。
+    - Cerebrasから取得したAPIキーをカンマ区切りで設定します。
+
+    ```.env
+    CEREBRAS_API_KEYS=key_123,key_456,key_789
+    ```
+
+3.  **開発サーバーの起動:**
+
+    ```bash
+    pnpm dev
+    ```
+
+4.  ブラウザで `http://localhost:3000` を開きます。
+
+---
+
+## 5. アプリケーション設定
+
+アプリケーションの動作は、チャット画面右上の設定アイコンから変更できます。
+
+- **APIとデータ (API & Data):**
+  - `履歴をエクスポート`: IndexedDBに保存されているすべての会話履歴をJSONファイルとしてダウンロードします。
+  - `全会話を削除`: すべてのローカルデータを消去します。
+- **モデル設定 (Models):**
+  - **推論モデル (`inference-models.tsx`):**
+    - 並行実行させたいモデルを動的に追加・削除できます。
+    - 各モデルカードで、使用するモデル名、Temperature、最大トークン数、およびモデルの有効/無効を個別に設定できます。
+  - **統合モデル (`integrator-model.tsx`):**
+    - 推論モデルからの応答を統合する役割を担う、単一のLLMを設定します。
+  - **要約モデル (`summarizer-model.tsx`):**
+    - 会話履歴が長くなった際に、コンテキストを圧縮するために使用するLLMを設定します。

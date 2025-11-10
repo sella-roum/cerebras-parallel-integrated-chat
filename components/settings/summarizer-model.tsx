@@ -11,19 +11,27 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
-
 import { DEFAULT_CEREBRAS_MODELS } from "@/lib/constants";
 
+/**
+ * 長い会話履歴を自動で要約（圧縮）する
+ * 「要約モデル」を設定するためのコンポーネント
+ */
 export function SummarizerModel() {
   const [modelName, setModelName] = useState("zai-glm-4.6");
   const [temperature, setTemperature] = useState(0.3);
   const [maxTokens, setMaxTokens] = useState(30000);
-  const [popoverOpen, setPopoverOpen] = useState(false); // Popoverの開閉state
+  const [popoverOpen, setPopoverOpen] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
 
+  // マウント時にDBから設定を読み込む
   useEffect(() => {
     loadSettings();
   }, []);
 
+  /**
+   * IndexedDBから要約モデル設定（appSettings.summarizerModel）を読み込みます。
+   */
   const loadSettings = async () => {
     try {
       const settings = await db.getAppSettings();
@@ -34,20 +42,27 @@ export function SummarizerModel() {
       }
     } catch (error) {
       console.error("Failed to load summarizer settings:", error);
+    } finally {
+      setHasLoaded(true);
     }
   };
 
+  // いずれかの設定値が変更されたら、自動でDBに保存
   useEffect(() => {
-    if (modelName) {
-      saveSettings();
+    if (!hasLoaded || !modelName) {
+      return;
     }
-  }, [modelName, temperature, maxTokens]);
+    saveSettings();
+  }, [hasLoaded, modelName, temperature, maxTokens]);
 
+  /**
+   * 現在のstateを `appSettings.summarizerModel` としてDBに保存します。
+   */
   const saveSettings = async () => {
     try {
       const currentSettings = await db.getAppSettings();
       await db.saveAppSettings({
-        ...currentSettings,
+        ...currentSettings, // 既存の統合モデル設定などを保持
         summarizerModel: {
           provider: "cerebras",
           modelName,
@@ -67,13 +82,17 @@ export function SummarizerModel() {
         <CardTitle>要約モデル</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* モデル名 (ComboBox) */}
         <div className="space-y-2">
           <Label htmlFor="summarizer-model">モデル名</Label>
-
-          {/* ▼ InputをComboBoxに置き換え ▼ */}
           <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
             <PopoverTrigger asChild>
-              <Button variant="outline" role="combobox" className="w-full justify-between font-mono">
+              <Button
+                variant="outline"
+                role="combobox"
+                className="w-full justify-between font-mono"
+                id="summarizer-model"
+              >
                 {modelName || "モデルを選択..."}
                 <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
               </Button>
@@ -108,9 +127,9 @@ export function SummarizerModel() {
               </Command>
             </PopoverContent>
           </Popover>
-
-          <p className="text-xs text-muted-foreground">Cerebrasモデルを使用して会話のタイトルを生成します</p>
+          <p className="text-xs text-muted-foreground">会話履歴が長くなった場合に要約（圧縮）するために使用されます</p>
         </div>
+        {/* Temperature */}
         <div className="space-y-2">
           <Label htmlFor="summarizer-temperature">Temperature: {temperature}</Label>
           <Slider
@@ -122,6 +141,7 @@ export function SummarizerModel() {
             onValueChange={([value]) => setTemperature(value)}
           />
         </div>
+        {/* 最大トークン数 */}
         <div className="space-y-2">
           <Label htmlFor="summarizer-tokens">最大トークン数</Label>
           <Input
