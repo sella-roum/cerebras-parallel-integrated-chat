@@ -60,6 +60,10 @@ const CONVERSATION_THRESHOLD = 10;
  * 履歴の自動要約がトリガーされる総文字数の閾値
  */
 const CONTENT_LENGTH_THRESHOLD = 30000;
+/**
+ * APIキーの数に関わらず、一時的エラー時に最低限保証するリトライ回数
+ */
+const MIN_RETRY_ATTEMPTS = 3;
 // #endregion
 
 // #region APIキー管理とカスタムエラー
@@ -327,8 +331,7 @@ export async function POST(req: NextRequest) {
 
     let summaryContent: string | null = null;
     let summaryAttempts = 0;
-    // 最大試行回数は、その時点で利用可能なキーの総数
-    let maxSummaryAttempts = apiKeyManager.keyCount;
+    let maxSummaryAttempts = Math.max(apiKeyManager.keyCount, MIN_RETRY_ATTEMPTS);
 
     while (summaryAttempts < maxSummaryAttempts && summaryContent === null) {
       if (apiKeyManager.keyCount === 0) {
@@ -406,7 +409,7 @@ export async function POST(req: NextRequest) {
     status: "pending" as "pending" | "fulfilled" | "failed",
     result: null as ModelResponse | null,
     attempts: 0,
-    maxAttempts: apiKeyManager.keyCount, // 最大試行回数は現時点での利用可能キー数
+    maxAttempts: Math.max(apiKeyManager.keyCount, MIN_RETRY_ATTEMPTS),
   }));
 
   let pendingTasks = modelTasks.filter((t) => t.status === "pending");
@@ -501,7 +504,7 @@ export async function POST(req: NextRequest) {
     // 応答が複数あり、統合モデルが設定されていれば統合を実行
     let integrationSuccess = false;
     let integrationAttempts = 0;
-    let maxIntegrationAttempts = apiKeyManager.keyCount;
+    let maxIntegrationAttempts = Math.max(apiKeyManager.keyCount, MIN_RETRY_ATTEMPTS);
 
     while (integrationAttempts < maxIntegrationAttempts && !integrationSuccess) {
       if (apiKeyManager.keyCount === 0) {
