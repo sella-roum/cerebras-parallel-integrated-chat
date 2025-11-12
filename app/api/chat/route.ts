@@ -349,11 +349,11 @@ export async function POST(req: NextRequest) {
             error.message,
           );
           const { isPermanent, removeKey } = classifyError(error);
+
           if (isPermanent && removeKey) {
             apiKeyManager.removeKey(apiKey);
-            // キーを削除した場合、最大試行回数を更新し、試行回数をデクリメント
-            maxSummaryAttempts = apiKeyManager.keyCount;
-            summaryAttempts--;
+            const remainingKeys = apiKeyManager.keyCount;
+            maxSummaryAttempts = Math.max(maxSummaryAttempts, summaryAttempts + remainingKeys);
           }
         } else {
           // 予期せぬエラー
@@ -457,8 +457,10 @@ export async function POST(req: NextRequest) {
 
         if (removeKey) {
           apiKeyManager.removeKey(error.apiKeyUsed);
-          // このキーがもう使えないので、全タスクの最大試行回数を更新
-          modelTasks.forEach((t) => (t.maxAttempts = apiKeyManager.keyCount));
+          const remainingKeys = apiKeyManager.keyCount;
+          modelTasks.forEach((t) => {
+            t.maxAttempts = Math.max(t.maxAttempts, t.attempts + remainingKeys);
+          });
         }
 
         if (isPermanent && removeModel) {
@@ -519,11 +521,11 @@ export async function POST(req: NextRequest) {
             `[Integrator] ${integrationAttempts}回目 失敗 (Key: ...${apiKey.slice(-4)}, Status: ${error.status})`,
           );
           const { isPermanent, removeKey } = classifyError(error);
+
           if (isPermanent && removeKey) {
             apiKeyManager.removeKey(apiKey);
-            // キーを削除した場合、最大試行回数を更新し、試行回数をデクリメント
-            maxIntegrationAttempts = apiKeyManager.keyCount;
-            integrationAttempts--;
+            const remainingKeys = apiKeyManager.keyCount;
+            maxIntegrationAttempts = Math.max(maxIntegrationAttempts, integrationAttempts + remainingKeys);
           }
         } else {
           lastApiError = new LlmApiError(error.message, 500, apiKey);
