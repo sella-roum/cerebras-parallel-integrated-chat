@@ -49,6 +49,7 @@ export function InferenceModels() {
           temperature: 0.6,
           maxTokens: 30000,
           enabled: true,
+          role: "general", // デフォルトの役割
         };
         await db.saveModelSettings(newModel);
         setModels([newModel]);
@@ -72,6 +73,7 @@ export function InferenceModels() {
       temperature: 0.6,
       maxTokens: 30000,
       enabled: true,
+      role: "general", // デフォルトの役割
     };
 
     try {
@@ -233,6 +235,22 @@ export function InferenceModels() {
                       リストから選択するか、カスタムモデル名を入力してください。
                     </p>
                   </div>
+
+                  {/* 役割 / 専門分野 */}
+                  <div className="space-y-2">
+                    <Label htmlFor={`model-role-${model.id}`}>役割 / 専門分野 (オプション)</Label>
+                    <Input
+                      id={`model-role-${model.id}`}
+                      type="text"
+                      value={model.role || ""}
+                      onChange={(e) => updateModel(model.id, "role", e.target.value)}
+                      placeholder="例: プログラマー, 批評家, general"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      エージェント・モード（役割ベースなど）で使用する専門分野を入力します。
+                    </p>
+                  </div>
+
                   {/* Temperature */}
                   <div className="space-y-2">
                     <Label htmlFor={`temperature-${model.id}`}>Temperature: {model.temperature}</Label>

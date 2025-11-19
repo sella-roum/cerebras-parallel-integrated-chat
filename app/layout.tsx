@@ -5,8 +5,9 @@ import { Toaster } from "@/components/ui/toaster";
 import "./globals.css";
 
 // Vercelが開発したフォント 'Geist' を読み込みます
-const _geist = Geist({ subsets: ["latin"] });
-const _geistMono = Geist_Mono({ subsets: ["latin"] });
+// 未使用警告を回避するために変数名を変更し、classNameで使用
+const geistSans = Geist({ subsets: ["latin"], variable: "--font-sans" });
+const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-mono" });
 
 /**
  * アプリケーションの基本メタデータ
@@ -37,7 +38,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ja" suppressHydrationWarning>
-      <body className={`font-sans antialiased`}>
+      <body className={`font-sans antialiased ${geistSans.variable} ${geistMono.variable}`}>
         {/* アプリケーション本体 */}
         {children}
 

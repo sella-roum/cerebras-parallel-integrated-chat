@@ -1,8 +1,9 @@
 "use client";
 
 import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm"; // GitHub Flavored Markdown (テーブル, 取り消し線など) をサポート
+import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
+import type { ComponentPropsWithoutRef } from "react";
 
 /**
  * MarkdownRendererコンポーネントのProps
@@ -29,8 +30,14 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
 
           /**
            * インラインコード (`code`) とコードブロック (```code```)
+           * react-markdown は code 要素に `inline` プロパティを追加するため型を拡張
            */
-          code: ({ node, inline, className, children, ...props }: any) => {
+          code: ({
+            inline,
+            className,
+            children,
+            ...props
+          }: ComponentPropsWithoutRef<"code"> & { inline?: boolean }) => {
             if (inline) {
               // インラインコード
               return (
@@ -52,7 +59,7 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
           /**
            * コードブロックのラッパー (`<pre>`)
            */
-          pre: ({ node, children, ...props }: any) => {
+          pre: ({ children, ...props }: ComponentPropsWithoutRef<"pre">) => {
             return (
               <pre className="bg-muted p-3 rounded-md overflow-x-auto my-2 max-w-full" {...props}>
                 {children}
@@ -62,7 +69,7 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
           /**
            * リンク (`<a>`)
            */
-          a: ({ node, children, ...props }: any) => {
+          a: ({ children, ...props }: ComponentPropsWithoutRef<"a">) => {
             return (
               <a
                 className="text-primary underline hover:no-underline"
@@ -77,7 +84,7 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
           /**
            * 順序なしリスト (`<ul>`)
            */
-          ul: ({ node, children, ...props }: any) => {
+          ul: ({ children, ...props }: ComponentPropsWithoutRef<"ul">) => {
             return (
               <ul className="list-disc pl-6 my-2 space-y-1" {...props}>
                 {children}
@@ -87,7 +94,7 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
           /**
            * 順序付きリスト (`<ol>`)
            */
-          ol: ({ node, children, ...props }: any) => {
+          ol: ({ children, ...props }: ComponentPropsWithoutRef<"ol">) => {
             return (
               <ol className="list-decimal pl-6 my-2 space-y-1" {...props}>
                 {children}
@@ -97,7 +104,7 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
           /**
            * 見出し (`<h1>`)
            */
-          h1: ({ node, children, ...props }: any) => {
+          h1: ({ children, ...props }: ComponentPropsWithoutRef<"h1">) => {
             return (
               <h1 className="text-2xl font-bold mt-6 mb-3" {...props}>
                 {children}
@@ -107,7 +114,7 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
           /**
            * 見出し (`<h2>`)
            */
-          h2: ({ node, children, ...props }: any) => {
+          h2: ({ children, ...props }: ComponentPropsWithoutRef<"h2">) => {
             return (
               <h2 className="text-xl font-bold mt-5 mb-2" {...props}>
                 {children}
@@ -117,7 +124,7 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
           /**
            * 見出し (`<h3>`)
            */
-          h3: ({ node, children, ...props }: any) => {
+          h3: ({ children, ...props }: ComponentPropsWithoutRef<"h3">) => {
             return (
               <h3 className="text-lg font-semibold mt-4 mb-2" {...props}>
                 {children}
@@ -127,7 +134,7 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
           /**
            * 段落 (`<p>`)
            */
-          p: ({ node, children, ...props }: any) => {
+          p: ({ children, ...props }: ComponentPropsWithoutRef<"p">) => {
             return (
               <p className="my-2 leading-relaxed" {...props}>
                 {children}
@@ -137,7 +144,7 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
           /**
            * 引用 (`<blockquote>`)
            */
-          blockquote: ({ node, children, ...props }: any) => {
+          blockquote: ({ children, ...props }: ComponentPropsWithoutRef<"blockquote">) => {
             return (
               <blockquote className="border-l-4 border-muted-foreground/30 pl-4 italic my-3" {...props}>
                 {children}
