@@ -27,8 +27,6 @@ interface ChatViewProps {
   onOpenSettings: () => void;
   /** (page.tsxから) 会話タイトルを更新するためのコールバック */
   onUpdateConversationTitle: (id: string, title: string) => void;
-  /** (page.tsxから) 新規会話を作成するためのコールバック */
-  onNewConversation: () => void;
   /** (page.tsxから) 会話のシステムプロンプトを更新するためのコールバック */
   onUpdateConversationSystemPrompt: (id: string, systemPrompt: string) => void;
 }
@@ -67,8 +65,12 @@ export function ChatView({
   /** 編集中のテキストエリアの内容 */
   const [editingContent, setEditingContent] = useState<string>("");
 
+  // --- Refs ---
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // ★ 追加: 会話切り替え時の競合回避用Ref
+  const activeConversationIdRef = useRef<string | null>(null);
+
   const isMobile = useMobile();
   const { toast } = useToast();
 
@@ -95,6 +97,9 @@ export function ChatView({
    * 編集モードをキャンセルします。
    */
   useEffect(() => {
+    // ★ 現在のアクティブな会話IDを更新
+    activeConversationIdRef.current = selectedConversationData?.id || null;
+
     if (selectedConversationData) {
       setIsLoading(false); // 会話切り替え時はローディング解除
       setEditingMessageId(null); // 編集モードをキャンセル
@@ -128,76 +133,97 @@ export function ChatView({
   ) => {
     setIsLoading(true);
 
-    // 1. 最新の設定をDBから取得
-    const modelSettings = await db.getModelSettings();
-    const appSettings = (await db.getAppSettings()) || {};
-    const totalContentLength = historyToResend.reduce((acc, msg) => acc + msg.content.length, 0);
+    try {
+      // 1. 最新の設定をDBから取得
+      const modelSettings = await db.getModelSettings();
+      const appSettings = (await db.getAppSettings()) || {};
+      const totalContentLength = historyToResend.reduce((acc, msg) => acc + msg.content.length, 0);
 
-    let finalContent = "";
-    let finalModelResponses: ModelResponse[] = [];
+      let finalContent = "";
+      let finalModelResponses: ModelResponse[] = [];
 
-    // 2. ストリーミングAPIを呼び出し
-    await llmService.generateResponseStreaming(
-      historyToResend,
-      modelSettings,
-      appSettings,
-      currentSystemPrompt,
-      totalContentLength,
-      agentMode,
-      {
-        /** 思考ステップが届くたび */
-        onStatus: (step) => {
-          setStreamingStatus(`思考中: ${step}...`);
-        },
-        /** 回答チャンクが届くたび */
-        onData: (chunk) => {
-          finalContent += chunk;
-          // UIのAIメッセージ（ガワ）の content をリアルタイムで更新
-          setMessages((prev) =>
-            prev.map((m) => (m.id === assistantMessageShell.id ? { ...m, content: finalContent } : m)),
-          );
-        },
-        /** 個別応答（JSON）が届いた時 */
-        onResponses: (data) => {
-          finalModelResponses = data;
-          // UIにも反映
-          setMessages((prev) =>
-            prev.map((m) => (m.id === assistantMessageShell.id ? { ...m, modelResponses: data } : m)),
-          );
-        },
-        /** 要約が実行された時 */
-        onSummary: (newHistoryContext) => {
-          // 要約が実行された場合、DBとStateを新しい履歴で置き換え
-          // （ストリーミング中のAIのガワを末尾に追加）
-          const fullHistory: Message[] = [...newHistoryContext, ...historyToResend.slice(-1), assistantMessageShell];
-          db.replaceHistory(conversationId, fullHistory);
-          setMessages(fullHistory);
-        },
-        /** エラー発生時 */
-        onError: (message) => {
-          toast({ title: "エージェントエラー", description: message, variant: "destructive" });
-          // エラーが発生したAIメッセージの「ガワ」をStateから削除
-          setMessages((prev) => prev.filter((m) => m.id !== assistantMessageShell.id));
-        },
-        /** ストリーム完了時 */
-        onFinish: async (content) => {
-          // --- DB同期 (ステップ2) ---
-          // ストリーミング完了後、完全なAIメッセージをDBに保存（更新）
-          const fullAssistantMessage: Message = {
-            ...assistantMessageShell,
-            content: content,
-            timestamp: Date.now(), // タイムスタンプを完了時に更新
-            modelResponses: finalModelResponses,
-          };
-          // ★ db.addMessage はIDが重複した場合に上書き(put)する
-          await db.addMessage(fullAssistantMessage);
+      // 2. ストリーミングAPIを呼び出し
+      await llmService.generateResponseStreaming(
+        historyToResend,
+        modelSettings,
+        appSettings,
+        currentSystemPrompt,
+        totalContentLength,
+        agentMode,
+        {
+          /** 思考ステップが届くたび */
+          onStatus: (step) => {
+            // ★ 会話が切り替わっていたら更新しない
+            if (activeConversationIdRef.current !== conversationId) return;
+            setStreamingStatus(`思考中: ${step}...`);
+          },
+          /** 回答チャンクが届くたび */
+          onData: (chunk) => {
+            if (activeConversationIdRef.current !== conversationId) return;
+            finalContent += chunk;
+            // UIのAIメッセージ（ガワ）の content をリアルタイムで更新
+            setMessages((prev) =>
+              prev.map((m) => (m.id === assistantMessageShell.id ? { ...m, content: finalContent } : m)),
+            );
+          },
+          /** 個別応答（JSON）が届いた時 */
+          onResponses: (data) => {
+            if (activeConversationIdRef.current !== conversationId) return;
+            finalModelResponses = data;
+            // UIにも反映
+            setMessages((prev) =>
+              prev.map((m) => (m.id === assistantMessageShell.id ? { ...m, modelResponses: data } : m)),
+            );
+          },
+          /** 要約が実行された時 */
+          onSummary: (newHistoryContext) => {
+            if (activeConversationIdRef.current !== conversationId) return;
+            // 要約が実行された場合、DBとStateを新しい履歴で置き換え
+            // （ストリーミング中のAIのガワを末尾に追加）
+            const fullHistory: Message[] = [...newHistoryContext, ...historyToResend.slice(-1), assistantMessageShell];
+            db.replaceHistory(conversationId, fullHistory);
+            setMessages(fullHistory);
+          },
+          /** エラー発生時 */
+          onError: (message) => {
+            if (activeConversationIdRef.current !== conversationId) return;
+            toast({ title: "エージェントエラー", description: message, variant: "destructive" });
+            // エラーが発生したAIメッセージの「ガワ」をStateから削除
+            setMessages((prev) => prev.filter((m) => m.id !== assistantMessageShell.id));
+            // ★ エラー時もローディング解除
+            setIsLoading(false);
+            setStreamingStatus(null);
+          },
+          /** ストリーム完了時 */
+          onFinish: async (content) => {
+            if (activeConversationIdRef.current !== conversationId) return;
+            // --- DB同期 (ステップ2) ---
+            // ストリーミング完了後、完全なAIメッセージをDBに保存（更新）
+            const fullAssistantMessage: Message = {
+              ...assistantMessageShell,
+              content: content,
+              timestamp: Date.now(), // タイムスタンプを完了時に更新
+              modelResponses: finalModelResponses,
+            };
+            // ★ db.addMessage はIDが重複した場合に上書き(put)する
+            await db.addMessage(fullAssistantMessage);
 
-          setIsLoading(false);
-          setStreamingStatus(null);
-          console.log("DB Sync: 完了");
+            setIsLoading(false);
+            setStreamingStatus(null);
+            console.log("DB Sync: 完了");
+          },
         },
-      },
-    );
+      );
+    } catch (e) {
+      // ★ 万が一 llmService 自体が例外を投げた場合の安全策
+      console.error("Stream Execution Error:", e);
+      if (activeConversationIdRef.current === conversationId) {
+        toast({ title: "予期せぬエラーが発生しました", variant: "destructive" });
+        setMessages((prev) => prev.filter((m) => m.id !== assistantMessageShell.id));
+        setIsLoading(false);
+        setStreamingStatus(null);
+      }
+    }
   };
 
   /**

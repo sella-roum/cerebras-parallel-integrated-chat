@@ -3,66 +3,58 @@ import type { ExecutionStepFunction } from "../types";
 import type { CoreMessage } from "ai";
 
 /**
- * [ステップ] 感情・トーン分析と標準実行を同時に行う (メタ分析)
- * "analyzer" ロールを持つモデル（またはフォールバック）がメタ分析を行い、
- * 他のモデルが標準的な回答生成を並列で行います。
+ * [ステップ] 感情・トーン分析と標準実行を並列に行う (メタ分析)
+ * 特定の役割設定に関わらず、
+ * 1. モデルリストの先頭のモデルを「分析役」として実行
+ * 2. 全モデルを「回答役」として標準実行
+ * これらを並列処理します。
  *
  * @param {AgentContext} context - 現在の実行コンテキスト
  * @returns {Promise<AgentContext>} parallelResponses と critiques (分析結果) が追加されたコンテキスト
- * @throws {Error} 分析用モデルが見つからない場合
+ * @throws {Error} 有効なモデルがない場合
  */
 export const executeEmotionAnalysis: ExecutionStepFunction = async (context) => {
   const { apiKeyManager, llmMessages, enabledModels } = context;
 
-  // "analyzer" ロールを持つモデルを探す
-  let analyzerModel = enabledModels.find((m) => m.role?.toLowerCase() === "analyzer");
-
-  if (!analyzerModel) {
-    // フォールバック: 最初の有効なモデルを分析役にする
-    analyzerModel = enabledModels[0];
-    console.warn(
-      `[Agent Step: Meta] 'analyzer' ロールのモデルがないため、${analyzerModel?.modelName || "N/A"} を分析役として使用します。`,
-    );
-  }
-  if (!analyzerModel) {
-    throw new Error("感情分析モードが選択されましたが、有効なモデルがありません。");
+  if (enabledModels.length === 0) {
+    throw new Error("有効な推論モデルがありません。");
   }
 
-  // 分析役以外のモデルで標準実行を行う
-  const standardModels = enabledModels.filter((m) => m.id !== analyzerModel!.id);
+  // 1. 動的に役割を割り当て
+  // 先頭のモデルを「分析役」に指名（ランダムでも良いが、決定論的な方がデバッグしやすい）
+  const analyzerModel = enabledModels[0];
 
-  // 1. 感情分析プロンプトの準備
+  // 2. 感情分析プロンプトの準備
   const analysisPrompt: CoreMessage[] = [
-    llmMessages.at(-1)!, // 最新の質問のみ
+    ...llmMessages, // 文脈理解のために全履歴を渡す
     {
       role: "system",
       content:
-        'ユーザーの最新のメッセージと会話履歴に基づき、ユーザーの現在の感情（例：怒り、喜び、急いでいる、好奇心旺盛）と、望ましい回答のトーン（例：フォーマル、共感的、技術的）を分析し、JSON（例: {"emotion": "急いでいる", "tone": "フォーマル"}）の形式で、JSONオブジェクトのみを厳密に出力してください。',
+        '（分析タスク）ユーザーの最新のメッセージと会話履歴に基づき、ユーザーの現在の感情（例：怒り、喜び、焦り、好奇心）と、望ましい回答のトーン（例：簡潔、共感的、技術的、丁寧）を分析してください。\n出力は JSON形式 `{"emotion": "...", "tone": "..."}` のみとしてください。',
     },
   ];
 
-  // 1a. 感情分析の実行タスク
+  // 3. 並列実行の開始
+
+  // Task A: 分析の実行 (1つのモデル)
   const analysisPromise = executeParallel(apiKeyManager, [analyzerModel], analysisPrompt);
 
-  // 1b. 通常の並列実行タスク
-  const standardPromise = (async () => {
-    if (standardModels.length > 0) {
-      // executeStandard はコンテキストを返すため、ここでは直接 executeParallel を呼ぶ
-      return await executeParallel(apiKeyManager, standardModels, llmMessages);
-    }
-    return []; // 分析役しかいない場合は空
-  })();
+  // Task B: 通常の回答生成 (全モデル)
+  // ※ 分析結果を待たずに、まずは標準的な回答を生成させておく（時間短縮）
+  const standardPromise = executeParallel(apiKeyManager, enabledModels, llmMessages);
 
-  // 2. 両方を並列で待機
+  // 両方の完了を待機
   const [analysisResponses, standardResponses] = await Promise.all([analysisPromise, standardPromise]);
 
-  // ★ critiques スロットを流用してメタ情報（分析結果）を格納
+  // 4. 結果の格納
+  // critiques スロットを流用してメタ情報（分析結果）を格納
   context.critiques = analysisResponses;
-  // ★ 通常の並列実行の結果を格納
+
+  // 通常の並列実行の結果を格納
   context.parallelResponses = standardResponses;
 
-  // もし標準実行が失敗（例：分析役しかいなかった）場合、分析結果を回答として使う（フォールバック）
-  if (context.parallelResponses.length === 0) {
+  // 万が一標準実行が失敗した場合のフォールバック
+  if (context.parallelResponses.length === 0 && analysisResponses.length > 0) {
     context.parallelResponses = analysisResponses.map((r) => ({
       ...r,
       content: `分析結果（回答の生成に失敗）： ${r.content}`,

@@ -27,6 +27,16 @@ export async function POST(req: NextRequest) {
 
   // 2. リクエストボディのパース (Vercel AI SDK 形式)
   const { messages, data } = await req.json();
+
+  // ★ 修正: メッセージ形式のバリデーションを追加
+  // messages が配列でない場合、ランタイムエラーを防ぐために早期リターン
+  if (!Array.isArray(messages)) {
+    return new Response(JSON.stringify({ error: "Invalid request: messages must be an array" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
   const { modelSettings, appSettings, systemPrompt, totalContentLength, agentMode } = (data || {}) as {
     modelSettings: (ModelSettings & { enabled: boolean })[];
     appSettings: AppSettings;
@@ -93,7 +103,9 @@ export async function POST(req: NextRequest) {
         }
 
         // ★カスタムプロトコルで個別応答を送信
-        controller.enqueue(StreamProtocol.RESPONSES(context.parallelResponses));
+        // context.modelResponses があればそれを優先（批評モード等で統合されている場合があるため）
+        const responsesToSend = context.modelResponses || context.parallelResponses;
+        controller.enqueue(StreamProtocol.RESPONSES(responsesToSend));
 
         controller.close(); // ストリーム正常終了
       } catch (error: unknown) {

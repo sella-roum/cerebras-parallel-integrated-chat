@@ -73,7 +73,7 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
             return (
               <a
                 className="text-primary underline hover:no-underline"
-                target="_blank" // 外部リンクは新しいタブで開く
+                target="_blank" // 全てのリンクを新しいタブで開く（内部リンク含む）
                 rel="noopener noreferrer"
                 {...props}
               >

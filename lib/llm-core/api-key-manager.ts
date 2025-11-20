@@ -90,11 +90,15 @@ export class ApiKeyManager {
 /**
  * 環境変数 `CEREBRAS_API_KEYS` からAPIキーの配列を取得します。
  * カンマ区切りで複数のキーを登録可能です。
+ * 前後の空白を除去し、空のキーを除外します。
  * @returns {string[]} APIキーの配列
  */
 export function getApiKeys(): string[] {
   const keysEnv = process.env.CEREBRAS_API_KEYS || "";
-  return keysEnv.split(",").filter((key) => key.trim() !== "");
+  return keysEnv
+    .split(",")
+    .map((key) => key.trim())
+    .filter((key) => key !== "");
 }
 
 /**

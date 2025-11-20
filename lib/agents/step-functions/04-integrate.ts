@@ -2,7 +2,7 @@ import { executeIntegration } from "../../llm-core/integrator-executor";
 import type { ExecutionStepFunction } from "../types";
 import type { CoreMessage } from "ai";
 import { StreamProtocol } from "../types";
-import type { ModelSettings } from "../../db"; // ModelSettings を追加
+import type { ModelSettings } from "../../db";
 
 /**
  * [ステップ] 標準的な統合
@@ -46,7 +46,6 @@ export const integrateStandard: ExecutionStepFunction = async (context) => {
   ];
 
   // ★ リトライ付き統合実行（ストリーミング）を呼び出す
-  // 型不整合を解消
   const finalContent = await executeIntegration(
     apiKeyManager,
     integrationPrompt,
@@ -140,8 +139,11 @@ export const integrateWithCritiques: ExecutionStepFunction = async (context) => 
   );
 
   context.finalContent = finalContent;
-  // ★ UIで草稿と批評の両方を見れるように、すべてを modelResponses に詰める
-  context.parallelResponses = [...parallelResponses, ...critiques];
+  // ★ 修正: UIで草稿と批評の両方を見れるように、modelResponses と parallelResponses の両方を更新
+  const allResponses = [...parallelResponses, ...critiques];
+  context.parallelResponses = allResponses;
+  context.modelResponses = allResponses;
+
   context.finalContentStreamed = true;
   return context;
 };

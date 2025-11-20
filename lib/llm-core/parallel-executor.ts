@@ -108,13 +108,15 @@ export async function executeParallel(
       const result = results[i];
       const task = pendingTasks[i];
 
-      if (result.status === "fulfilled" && result.value.content) {
+      // 成功判定: status が fulfilled であれば、content が空文字列でも成功とみなす
+      if (result.status === "fulfilled") {
         // 成功
         task.status = "fulfilled";
         task.result = result.value;
       } else {
         // 失敗
-        const error: LlmApiError = (result as PromiseRejectedResult).reason;
+        // rejected の場合のみ reason にアクセスしてキャスト
+        const error = (result as PromiseRejectedResult).reason as LlmApiError;
         lastApiError = error;
         console.warn(
           `[ParallelExecutor] ${task.modelSettings.modelName} が ${task.attempts}回目 失敗 (Key: ...${error.apiKeyUsed.slice(-4)}, Status: ${error.status})`,

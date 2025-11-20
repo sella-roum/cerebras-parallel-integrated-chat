@@ -29,7 +29,6 @@ export const planSubtasks: ExecutionStepFunction = async (context) => {
   ];
 
   // 計画ステップはストリーミングしない
-  // 型不整合を解消するため、ダミープロパティを追加
   const planResponse = await executeIntegration(apiKeyManager, plannerPrompt, {
     ...appSettings.integratorModel,
     id: "planner",
@@ -37,8 +36,15 @@ export const planSubtasks: ExecutionStepFunction = async (context) => {
   } as ModelSettings);
 
   try {
-    // LLMの応答からJSON配列をパース
-    context.subTasks = JSON.parse(planResponse);
+    // ★ 修正: JSONパースの堅牢化
+    const parsed = JSON.parse(planResponse);
+    if (Array.isArray(parsed)) {
+      // 文字列以外が混ざっていても一応 toString でそろえる
+      context.subTasks = parsed.map((v) => String(v));
+    } else {
+      // 想定外の構造はフォールバック
+      context.subTasks = [planResponse];
+    }
     console.log("[Agent Step: Plan]", context.subTasks);
   } catch {
     console.error("[Agent Step: Plan] 計画のJSONパースに失敗しました。応答を単一タスクとして扱います。", planResponse);
@@ -80,10 +86,15 @@ export const generateHypotheses: ExecutionStepFunction = async (context) => {
   } as ModelSettings);
 
   try {
-    // subTasks スロットを流用して仮説を格納
-    context.subTasks = JSON.parse(hypoResponse);
+    // ★ 修正: JSONパースの堅牢化 (planSubtasksと同様)
+    const parsed = JSON.parse(hypoResponse);
+    if (Array.isArray(parsed)) {
+      context.subTasks = parsed.map((v) => String(v));
+    } else {
+      context.subTasks = [hypoResponse];
+    }
     console.log("[Agent Step: Hypothesis]", context.subTasks);
-    // ★ 仮説モードであることを示すフラグを立てる（統合ステップが参照するため）
+    // 仮説モードであることを示すフラグを立てる（統合ステップが参照するため）
     context.isHypothesis = true;
   } catch {
     console.error("[Agent Step: Hypothesis] 仮説のJSONパースに失敗しました。", hypoResponse);

@@ -99,6 +99,27 @@ export class LLMService {
     let buffer = ""; // チャンクの切れ端を保持するバッファ
     let finalContent = ""; // 最終的な完全な回答テキスト
 
+    // バッファ内の行を処理するヘルパー関数
+    const processLines = (lines: string[]) => {
+      for (const line of lines) {
+        if (line.startsWith("DATA:")) {
+          // ★ 厳格なプロトコル `DATA:` のみ content として扱う
+          const chunk = line.substring(5); // "DATA:" の5文字を削除
+          callbacks.onData(chunk);
+          finalContent += chunk;
+        } else if (line.startsWith("STATUS:STEP:")) {
+          callbacks.onStatus(line.replace("STATUS:STEP:", "").trim());
+        } else if (line.startsWith("MODEL_RESPONSES:")) {
+          callbacks.onResponses(JSON.parse(line.replace("MODEL_RESPONSES:", "").trim()));
+        } else if (line.startsWith("SUMMARY_EXECUTED:")) {
+          callbacks.onSummary(JSON.parse(line.replace("SUMMARY_EXECUTED:", "").trim()));
+        } else if (line.startsWith("ERROR:")) {
+          callbacks.onError(line.replace("ERROR:", "").trim());
+        }
+        // プロトコルに合致しない行（空行など）は無視
+      }
+    };
+
     try {
       while (true) {
         const { value, done } = await reader.read();
@@ -114,23 +135,14 @@ export class LLMService {
         // (例: "DATA: こんにちは\nSTATUS:ST" の "STATUS:ST" の部分)
         buffer = lines.pop() || "";
 
-        for (const line of lines) {
-          if (line.startsWith("DATA:")) {
-            // ★ 厳格なプロトコル `DATA:` のみ content として扱う
-            const chunk = line.substring(5); // "DATA:" の5文字を削除
-            callbacks.onData(chunk);
-            finalContent += chunk;
-          } else if (line.startsWith("STATUS:STEP:")) {
-            callbacks.onStatus(line.replace("STATUS:STEP:", "").trim());
-          } else if (line.startsWith("MODEL_RESPONSES:")) {
-            callbacks.onResponses(JSON.parse(line.replace("MODEL_RESPONSES:", "").trim()));
-          } else if (line.startsWith("SUMMARY_EXECUTED:")) {
-            callbacks.onSummary(JSON.parse(line.replace("SUMMARY_EXECUTED:", "").trim()));
-          } else if (line.startsWith("ERROR:")) {
-            callbacks.onError(line.replace("ERROR:", "").trim());
-          }
-          // プロトコルに合致しない行（空行など）は無視
-        }
+        processLines(lines);
+      }
+
+      // ★ 修正: ストリーム終了後にバッファに残った行を処理
+      // 最後の行が改行で終わっていない場合でも処理する
+      if (buffer.length > 0) {
+        const remainingLines = buffer.split("\n");
+        processLines(remainingLines);
       }
     } catch (e: unknown) {
       // any -> unknown
@@ -145,6 +157,9 @@ export class LLMService {
   /**
    * @deprecated この関数は古いシグネチャです。`generateResponseStreaming` を使用してください。
    * (注: `totalContentLength` が 0 固定のため、要約機能が正しく動作しません)
+   *
+   * ★ 修正: 空文字を返すのではなく、Promiseでラップして最終結果を返すように修正し、
+   * 既存の呼び出し元が壊れないようにしました。
    */
   async generateResponse(
     messages: Message[],
@@ -152,7 +167,8 @@ export class LLMService {
     appSettings: AppSettings,
     systemPrompt?: string,
   ): Promise<string> {
-    // result 変数を削除
+    let finalContent = "";
+
     await this.generateResponseStreaming(
       messages,
       modelSettings,
@@ -166,13 +182,13 @@ export class LLMService {
         onResponses: () => {},
         onSummary: () => {},
         onError: () => {},
-        onFinish: () => {},
+        onFinish: (content) => {
+          finalContent = content;
+        },
       },
     );
-    // この古いメソッドはストリーミングをサポートしないため、
-    // 実際には `generateResponseStreaming` はこのコンテキストで正しく動作しない。
-    // これは型エラーを防ぐためのフォールバック実装。
-    return "";
+
+    return finalContent;
   }
 }
 
