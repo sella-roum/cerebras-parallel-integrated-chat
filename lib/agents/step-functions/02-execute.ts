@@ -7,12 +7,13 @@ import type { ModelSettings } from "../../db";
 /**
  * [ステップ] 標準的な並列実行
  * コンテキスト内の全有効化モデルに対し、共通の履歴を渡して並列実行します。
- * * @param {AgentContext} context - 現在の実行コンテキスト
+ * @param {AgentContext} context - 現在の実行コンテキスト
  * @returns {Promise<AgentContext>} 並列実行結果が含まれたコンテキスト
  */
 export const executeStandard: ExecutionStepFunction = async (context) => {
   const { apiKeyManager, llmMessages, enabledModels } = context;
 
+  // 有効なモデルがない場合の明示的なエラーチェック
   if (enabledModels.length === 0) {
     throw new Error("有効化された推論モデルがありません。");
   }
@@ -27,9 +28,9 @@ export const executeStandard: ExecutionStepFunction = async (context) => {
  * [ステップ] エキスパート・チームの並列実行
  * 統合モデルを使用してタスクに必要な「専門家の役割」を動的に生成し、
  * それらを全有効モデルにラウンドロビン方式で割り当てて実行します。
- * * 設定画面でモデルに役割が入力されている場合、それは「ユーザーの希望」として
+ * 設定画面でモデルに役割が入力されている場合、それは「ユーザーの希望」として
  * 役割生成時のヒントに使用されますが、実行自体は全モデルで行われます。
- * * @param {AgentContext} context - 現在の実行コンテキスト
+ * @param {AgentContext} context - 現在の実行コンテキスト
  * @returns {Promise<AgentContext>} 役割分担された回答が含まれたコンテキスト
  */
 export const executeExpertTeam: ExecutionStepFunction = async (context) => {
@@ -118,8 +119,8 @@ export const executeExpertTeam: ExecutionStepFunction = async (context) => {
 /**
  * [ステップ] 深層思考（CoT）の並列実行
  * 全モデルに「思考」と「最終回答」を要求するプロンプトを付与して並列実行し、結果をパースします。
- * * @param {AgentContext} context - 現在の実行コンテキスト
- * @returns {Promise<AgentContext>}
+ * @param {AgentContext} context - 現在の実行コンテキスト
+ * @returns {Promise<AgentContext>} CoT結果が含まれたコンテキスト
  */
 export const executeDeepThought: ExecutionStepFunction = async (context) => {
   const { apiKeyManager, llmMessages, enabledModels } = context;
@@ -135,21 +136,23 @@ export const executeDeepThought: ExecutionStepFunction = async (context) => {
   };
   const cotMessages = [...llmMessages, cotPrompt];
 
-  // 全モデルで実行
+  // CoTはプロンプトが共通なので、Mapではなく共通メッセージとして渡す
   const rawResponses = await executeParallel(apiKeyManager, enabledModels, cotMessages);
 
-  // パース処理
+  // パースして [思考] と [最終回答] を分離
   context.parallelResponses = rawResponses.map((res) => {
     const thoughtMatch = res.content.match(/\[思考\]([\s\S]*?)\[\/思考\]/);
     const answerMatch = res.content.match(/\[最終回答\]([\s\S]*)/);
 
     const thought = thoughtMatch ? thoughtMatch[1].trim() : "（思考の抽出に失敗）";
-    const answer = answerMatch ? answerMatch[1].trim() : thoughtMatch ? res.content : res.content;
+
+    // 修正: ロジックを簡素化
+    const answer = answerMatch ? answerMatch[1].trim() : res.content;
 
     return {
       ...res,
-      content: answer,
-      thought: thought,
+      content: answer, // content を「最終回答」部分のみにする
+      thought: thought, // カスタムプロパティとして思考を添付
     };
   });
 
@@ -159,9 +162,8 @@ export const executeDeepThought: ExecutionStepFunction = async (context) => {
 /**
  * [ステップ] 批評モード用の「生成役」を実行
  * 全モデルを「草稿作成者」として使用します。
- * (旧ロジック: role="generate" のみ抽出 → 新ロジック: 全モデル使用)
- * * @param {AgentContext} context - 現在の実行コンテキスト
- * @returns {Promise<AgentContext>}
+ * @param {AgentContext} context - 現在の実行コンテキスト
+ * @returns {Promise<AgentContext>} 草稿が含まれたコンテキスト
  */
 export const executeGenerators: ExecutionStepFunction = async (context) => {
   const { apiKeyManager, llmMessages, enabledModels } = context;
@@ -173,17 +175,16 @@ export const executeGenerators: ExecutionStepFunction = async (context) => {
   // 特定のロールを探すのではなく、全モデルで生成を行う
   const responses = await executeParallel(apiKeyManager, enabledModels, llmMessages);
 
-  context.parallelResponses = responses; // これが「草稿」となります
+  context.parallelResponses = responses; // これが「草稿」
   return context;
 };
 
 /**
  * [ステップ] 動的ルーターによる最適化実行
  * 統合モデルをルーターとして使用し、タスクに最適な「共通の指示（Instruction）」を生成します。
- * その指示を全モデルに適用して並列実行します。
- * (旧ロジック: 最適な役割を持つモデルを選択 → 新ロジック: 最適な指示を全モデルに適用)
- * * @param {AgentContext} context - 現在の実行コンテキスト
- * @returns {Promise<AgentContext>}
+ * 並列実行は行わず、生成した指示をコンテキストに注入して後続ステップに委ねます。
+ * @param {AgentContext} context - 現在の実行コンテキスト
+ * @returns {Promise<AgentContext>} 最適化された指示が注入されたコンテキスト
  */
 export const executeRouter: ExecutionStepFunction = async (context) => {
   const { apiKeyManager, llmMessages, enabledModels, appSettings } = context;
@@ -217,24 +218,23 @@ export const executeRouter: ExecutionStepFunction = async (context) => {
     dynamicInstruction = "タスクに対して、あなたの能力を最大限に発揮して詳細に回答してください。";
   }
 
-  // 2. 生成された指示を全モデルに適用する
+  // 2. 生成された指示をコンテキストのメッセージ履歴に注入する
+  // これにより、後続のステップ（executeExpertTeamなど）がこの指示を含んだ状態で実行される
   const routedMessages: CoreMessage[] = [
     { role: "system", content: `（動的戦略指示）\n${dynamicInstruction}` },
     ...llmMessages,
   ];
 
-  // 3. 全モデルで並列実行
-  const responses = await executeParallel(apiKeyManager, enabledModels, routedMessages);
-
-  context.parallelResponses = responses;
+  // コンテキストを更新して返す（並列実行はしない）
+  context.llmMessages = routedMessages;
   return context;
 };
 
 /**
  * [ステップ] サブタスク（または仮説）を並列実行
  * `context.subTasks` の内容を、全有効モデルにラウンドロビンで割り当てて実行します。
- * * @param {AgentContext} context - 現在の実行コンテキスト
- * @returns {Promise<AgentContext>}
+ * @param {AgentContext} context - 現在の実行コンテキスト
+ * @returns {Promise<AgentContext>} サブタスク実行結果が含まれたコンテキスト
  */
 export const executeSubtasks: ExecutionStepFunction = async (context) => {
   const { apiKeyManager, llmMessages, enabledModels, subTasks } = context;

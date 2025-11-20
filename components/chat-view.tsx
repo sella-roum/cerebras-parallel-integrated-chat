@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Menu, Settings, Send, Bot, Copy, RefreshCw, Loader2, ChevronDown, Pencil, SparklesIcon } from "lucide-react";
+import { Menu, Settings, Send, Bot, Copy, RefreshCw, Loader2, ChevronDown, Pencil, Sparkles } from "lucide-react";
 import { useMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 import { db, type Message, type Conversation, type ModelResponse } from "@/lib/db";
@@ -68,7 +68,7 @@ export function ChatView({
   // --- Refs ---
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  // ★ 追加: 会話切り替え時の競合回避用Ref
+  /** 会話切り替え時の競合回避用Ref */
   const activeConversationIdRef = useRef<string | null>(null);
 
   const isMobile = useMobile();
@@ -97,7 +97,6 @@ export function ChatView({
    * 編集モードをキャンセルします。
    */
   useEffect(() => {
-    // ★ 現在のアクティブな会話IDを更新
     activeConversationIdRef.current = selectedConversationData?.id || null;
 
     if (selectedConversationData) {
@@ -117,7 +116,7 @@ export function ChatView({
    */
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streamingStatus]); // streamingStatus もトリガー
+  }, [messages, streamingStatus]);
 
   /**
    * 共通のストリーミング実行とDB同期ロジック
@@ -153,7 +152,6 @@ export function ChatView({
         {
           /** 思考ステップが届くたび */
           onStatus: (step) => {
-            // ★ 会話が切り替わっていたら更新しない
             if (activeConversationIdRef.current !== conversationId) return;
             setStreamingStatus(`思考中: ${step}...`);
           },
@@ -168,54 +166,57 @@ export function ChatView({
           },
           /** 個別応答（JSON）が届いた時 */
           onResponses: (data) => {
-            if (activeConversationIdRef.current !== conversationId) return;
-            finalModelResponses = data;
-            // UIにも反映
-            setMessages((prev) =>
-              prev.map((m) => (m.id === assistantMessageShell.id ? { ...m, modelResponses: data } : m)),
-            );
+            finalModelResponses = data; // データは常にキャプチャ
+            // UI更新はアクティブな場合のみ
+            if (activeConversationIdRef.current === conversationId) {
+              setMessages((prev) =>
+                prev.map((m) => (m.id === assistantMessageShell.id ? { ...m, modelResponses: data } : m)),
+              );
+            }
           },
           /** 要約が実行された時 */
           onSummary: (newHistoryContext) => {
-            if (activeConversationIdRef.current !== conversationId) return;
-            // 要約が実行された場合、DBとStateを新しい履歴で置き換え
-            // （ストリーミング中のAIのガワを末尾に追加）
+            // 要約結果は常にDBに保存（裏側で整合性を保つ）
             const fullHistory: Message[] = [...newHistoryContext, ...historyToResend.slice(-1), assistantMessageShell];
             db.replaceHistory(conversationId, fullHistory);
-            setMessages(fullHistory);
+            // UI更新はアクティブな場合のみ
+            if (activeConversationIdRef.current === conversationId) {
+              setMessages(fullHistory);
+            }
           },
           /** エラー発生時 */
           onError: (message) => {
             if (activeConversationIdRef.current !== conversationId) return;
             toast({ title: "エージェントエラー", description: message, variant: "destructive" });
-            // エラーが発生したAIメッセージの「ガワ」をStateから削除
             setMessages((prev) => prev.filter((m) => m.id !== assistantMessageShell.id));
-            // ★ エラー時もローディング解除
             setIsLoading(false);
             setStreamingStatus(null);
           },
           /** ストリーム完了時 */
           onFinish: async (content) => {
-            if (activeConversationIdRef.current !== conversationId) return;
-            // --- DB同期 (ステップ2) ---
-            // ストリーミング完了後、完全なAIメッセージをDBに保存（更新）
+            // DB同期 (ステップ2): 完全なAIメッセージをDBに保存
             const fullAssistantMessage: Message = {
               ...assistantMessageShell,
               content: content,
-              timestamp: Date.now(), // タイムスタンプを完了時に更新
+              timestamp: Date.now(),
               modelResponses: finalModelResponses,
             };
-            // ★ db.addMessage はIDが重複した場合に上書き(put)する
-            await db.addMessage(fullAssistantMessage);
+            try {
+              await db.addMessage(fullAssistantMessage);
+              console.log("DB Sync: 完了");
+            } catch (err) {
+              console.error("DB Sync Error:", err);
+            }
 
-            setIsLoading(false);
-            setStreamingStatus(null);
-            console.log("DB Sync: 完了");
+            // UI更新はアクティブな場合のみ
+            if (activeConversationIdRef.current === conversationId) {
+              setIsLoading(false);
+              setStreamingStatus(null);
+            }
           },
         },
       );
     } catch (e) {
-      // ★ 万が一 llmService 自体が例外を投げた場合の安全策
       console.error("Stream Execution Error:", e);
       if (activeConversationIdRef.current === conversationId) {
         toast({ title: "予期せぬエラーが発生しました", variant: "destructive" });
@@ -276,7 +277,7 @@ export function ChatView({
   };
 
   /**
-   * AIの応答を再生成します。（実装完了）
+   * AIの応答を再生成します。
    * @param {string} messageId - 再生成するアシスタントメッセージのID
    */
   const handleRegenerate = async (messageId: string) => {
@@ -298,13 +299,10 @@ export function ChatView({
     setStreamingStatus("再生成中...");
 
     // --- DB同期 (ステップ1) ---
-    // DBから再生成対象のAIメッセージ（自身）以降を削除
     await db.deleteMessagesAfter(messageId, conversationId);
 
-    // Stateから対象メッセージ以降を削除
-    const historyToResend = messages.slice(0, messageIndex); // ユーザーメッセージまでを含む
+    const historyToResend = messages.slice(0, messageIndex);
 
-    // AIのガワを作成
     const assistantMessageId = `msg_asst_${Date.now()}`;
     const assistantMessageShell: Message = {
       id: assistantMessageId,
@@ -316,12 +314,11 @@ export function ChatView({
     };
     setMessages([...historyToResend, assistantMessageShell]);
 
-    // --- ストリーミング実行 ---
     await executeStreamAndSync(conversationId, historyToResend, assistantMessageShell);
   };
 
   /**
-   * ユーザーメッセージを編集し、そこから会話をやり直します。（実装完了）
+   * ユーザーメッセージを編集し、そこから会話をやり直します。
    */
   const handleEditAndRetry = async () => {
     if (isLoading || !selectedConversationData || !editingMessageId) return;
@@ -342,18 +339,13 @@ export function ChatView({
     const nextMessage = messages[messageIndex + 1];
 
     // --- DB同期 (ステップ1) ---
-    // DBから編集対象の *次* のメッセージ（AI応答）以降を削除
     if (nextMessage) {
       await db.deleteMessagesAfter(nextMessage.id, conversationId);
     }
-
-    // DBでユーザーメッセージを更新
     await db.updateMessageContent(originalMessageId, newContent);
 
-    // DBから最新の履歴（編集済み）をロード
     const historyToResend = await db.getMessages(conversationId);
 
-    // AIのガワを作成
     const assistantMessageId = `msg_asst_${Date.now()}`;
     const assistantMessageShell: Message = {
       id: assistantMessageId,
@@ -365,7 +357,6 @@ export function ChatView({
     };
     setMessages([...historyToResend, assistantMessageShell]);
 
-    // --- ストリーミング実行 ---
     await executeStreamAndSync(conversationId, historyToResend, assistantMessageShell);
   };
 
@@ -424,7 +415,6 @@ export function ChatView({
     setEditingContent("");
   };
 
-  // 現在選択中のエージェントモードの情報を取得
   const selectedMode = AGENT_MODES.find((m) => m.id === agentMode) || AGENT_MODES[0];
 
   return (
@@ -459,7 +449,7 @@ export function ChatView({
             value={currentSystemPrompt}
             onChange={(e) => setCurrentSystemPrompt(e.target.value)}
             onBlur={saveSystemPrompt}
-            disabled={isLoading || editingMessageId !== null} // ローディング中・編集中は編集不可
+            disabled={isLoading || editingMessageId !== null}
           />
         </div>
       )}
@@ -473,20 +463,17 @@ export function ChatView({
         )}
 
         {messages.map((message) => {
-          // AIの回答がストリーミング中の「ガワ」で、中身がまだ空の場合
           const isStreamingShell = message.role === "assistant" && message.content === "" && isLoading;
 
           return (
             <React.Fragment key={message.id}>
               {message.role === "system" ? (
-                // システムメッセージ（要約など）
                 <div className="flex items-center justify-center">
                   <div className="max-w-[70%] rounded-lg border bg-card px-4 py-3 text-xs text-muted-foreground italic">
                     <MarkdownRenderer content={message.content} className="text-xs" />
                   </div>
                 </div>
               ) : (
-                // ユーザーまたはアシスタントのメッセージ
                 <div className={cn("flex gap-3", message.role === "user" ? "justify-end" : "justify-start")}>
                   {message.role === "assistant" && (
                     <div className="w-8 h-8 rounded-md bg-primary flex items-center justify-center flex-shrink-0">
@@ -496,7 +483,6 @@ export function ChatView({
 
                   <div className="relative max-w-[70%] group">
                     {editingMessageId === message.id ? (
-                      // 編集UI
                       <div className="w-full space-y-2">
                         <Textarea
                           value={editingContent}
@@ -514,7 +500,6 @@ export function ChatView({
                         </div>
                       </div>
                     ) : (
-                      // 通常表示
                       <div
                         className={cn(
                           "px-4 py-3 rounded-lg",
@@ -523,18 +508,15 @@ export function ChatView({
                             : "bg-card text-card-foreground border border-border",
                         )}
                       >
-                        {/* ストリーミング中のスピナー */}
                         {isStreamingShell ? (
                           <div className="flex items-center gap-2 text-sm">
                             <Loader2 className="h-4 w-4 animate-spin" />
                             <span>{streamingStatus || "思考中..."}</span>
                           </div>
                         ) : (
-                          // 通常のMarkdownレンダリング
                           <MarkdownRenderer content={message.content} className="text-sm" />
                         )}
 
-                        {/* 個別応答の折りたたみ (ストリーミング完了後に表示) */}
                         {!isStreamingShell &&
                           message.role === "assistant" &&
                           message.modelResponses &&
@@ -573,7 +555,6 @@ export function ChatView({
                                         <Copy className="h-3 w-3" />
                                       </Button>
                                     </div>
-                                    {/* ★ CoT（アイディア2）の思考プロセスを表示 */}
                                     <MarkdownRenderer
                                       content={
                                         response.thought
@@ -590,7 +571,6 @@ export function ChatView({
                       </div>
                     )}
 
-                    {/* 操作ボタン (ローディング中、編集中、ストリーミング中は非表示) */}
                     {!isLoading && !editingMessageId && !isStreamingShell && (
                       <>
                         {message.role === "assistant" && (
@@ -648,9 +628,7 @@ export function ChatView({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* --- 入力フォーム --- */}
       <div className="p-4 border-t border-border">
-        {/* エージェント・モード・セレクター */}
         <div className="flex items-center gap-2 mb-2">
           <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
             <PopoverTrigger asChild>
@@ -662,7 +640,7 @@ export function ChatView({
                 disabled={isLoading || editingMessageId !== null}
               >
                 <div className="flex items-center gap-2">
-                  <SparklesIcon className="h-4 w-4 text-primary" />
+                  <Sparkles className="h-4 w-4 text-primary" />
                   <span className="truncate">{selectedMode.name}</span>
                 </div>
                 <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
@@ -705,13 +683,12 @@ export function ChatView({
             className="min-h-[44px] max-h-[200px] resize-none"
             rows={1}
             onKeyDown={(e) => {
-              // Shift+Enter 以外でのEnterキーで送信（モバイルを除く）
               if (e.key === "Enter" && !e.shiftKey && !isMobile) {
                 e.preventDefault();
                 handleSubmit(e);
               }
             }}
-            disabled={editingMessageId !== null || isLoading || !selectedConversationData} // 会話未選択時も無効化
+            disabled={editingMessageId !== null || isLoading || !selectedConversationData}
           />
           <Button
             type="submit"

@@ -21,12 +21,15 @@ export const integrateStandard: ExecutionStepFunction = async (context) => {
   // 応答が1つだけの場合、その内容をそのままストリーミング
   if (parallelResponses.length === 1) {
     const singleResponse = parallelResponses[0];
-    // ★ 厳格なプロトコル `DATA:` でチャンクを送信
-    // この場合はフルコンテンツを一度に送信
-    streamController.enqueue(StreamProtocol.DATA(singleResponse.content));
+
+    // ストリームコントローラーが存在する場合のみエンキューする
+    if (streamController) {
+      streamController.enqueue(StreamProtocol.DATA(singleResponse.content));
+      context.finalContentStreamed = true; // 手動でストリーミングした
+    }
+
     context.finalContent = singleResponse.content;
     context.modelResponses = parallelResponses;
-    context.finalContentStreamed = true; // 手動でストリーミングした
     return context;
   }
 
@@ -45,7 +48,7 @@ export const integrateStandard: ExecutionStepFunction = async (context) => {
     },
   ];
 
-  // ★ リトライ付き統合実行（ストリーミング）を呼び出す
+  // リトライ付き統合実行（ストリーミング）を呼び出す
   const finalContent = await executeIntegration(
     apiKeyManager,
     integrationPrompt,
@@ -54,7 +57,7 @@ export const integrateStandard: ExecutionStepFunction = async (context) => {
       id: "integrator",
       enabled: true,
     } as ModelSettings,
-    streamController, // ★ストリームコントローラーを渡す
+    streamController, // ストリームコントローラーを渡す
   );
 
   context.finalContent = finalContent; // 最終的な完全なテキスト
@@ -70,6 +73,7 @@ export const integrateDeepThought: ExecutionStepFunction = async (context) => {
   const { apiKeyManager, llmMessages, appSettings, streamController, parallelResponses } = context;
 
   if (!appSettings.integratorModel) throw new Error("統合モデルが設定されていません。");
+  if (!parallelResponses || parallelResponses.length === 0) throw new Error("統合対象の応答がありません。");
 
   // CoT専用の統合プロンプト
   const integrationPrompt: CoreMessage[] = [
@@ -108,6 +112,7 @@ export const integrateWithCritiques: ExecutionStepFunction = async (context) => 
   const { apiKeyManager, llmMessages, appSettings, streamController, parallelResponses, critiques } = context;
 
   if (!appSettings.integratorModel) throw new Error("統合モデルが設定されていません。");
+  // ガード処理を追加
   if (!parallelResponses || parallelResponses.length === 0) throw new Error("統合対象の草稿がありません。");
   if (!critiques || critiques.length === 0) throw new Error("統合対象の批評がありません。");
 
@@ -139,7 +144,7 @@ export const integrateWithCritiques: ExecutionStepFunction = async (context) => 
   );
 
   context.finalContent = finalContent;
-  // ★ 修正: UIで草稿と批評の両方を見れるように、modelResponses と parallelResponses の両方を更新
+  // UIで草稿と批評の両方を見れるように結合
   const allResponses = [...parallelResponses, ...critiques];
   context.parallelResponses = allResponses;
   context.modelResponses = allResponses;
@@ -197,6 +202,8 @@ export const integrateWithEmotion: ExecutionStepFunction = async (context) => {
   const { apiKeyManager, llmMessages, appSettings, streamController, parallelResponses, critiques } = context;
 
   if (!appSettings.integratorModel) throw new Error("統合モデルが設定されていません。");
+  // ガード処理を追加
+  if (!parallelResponses || parallelResponses.length === 0) throw new Error("統合対象の応答がありません。");
 
   // critiques スロットに感情分析の結果が格納されていると仮定
   const analysis = critiques && critiques.length > 0 ? critiques[0].content : '{"emotion": "不明", "tone": "標準"}';

@@ -86,14 +86,13 @@ export async function executeParallel(
         task.attempts++;
         const apiKey = apiKeyManager.getNextKey()!;
         try {
-          // ★ 抽象化された非ストリーミングAPIを呼ぶ
+          // 抽象化された非ストリーミングAPIを呼ぶ
           // task.messages は pending 状態なら必ず存在するはずなので ! を使用
           const content = await callLlmApi(apiKey, task.messages!, task.modelSettings);
           // 応答にモデル名と役割（あれば）を含める
           const roleSuffix = task.modelSettings.role ? ` (${task.modelSettings.role})` : "";
           return { model: `${task.modelSettings.modelName}${roleSuffix}`, provider: "cerebras", content };
         } catch (error: unknown) {
-          // any -> unknown
           if (error instanceof LlmApiError) throw error; // LlmApiErrorはそのままスロー
           // その他のエラーはLlmApiErrorにラップ
           const message = error instanceof Error ? error.message : "Unknown Error";
@@ -151,6 +150,10 @@ export async function executeParallel(
   const validResponses = modelTasks.filter((t) => t.status === "fulfilled" && t.result).map((t) => t.result!);
 
   if (validResponses.length === 0) {
+    // レビュー対応: メッセージが空でスキップされたケースを区別してエラーメッセージを出す
+    if (modelTasks.every((t) => !t.messages || t.messages.length === 0)) {
+      throw new Error("実行可能なモデルがありませんでした（全てのモデルでメッセージが空です）。");
+    }
     throw new Error(`全ての並列推論モデルが失敗しました: ${lastApiError?.message || "不明なエラー"}`);
   }
 
