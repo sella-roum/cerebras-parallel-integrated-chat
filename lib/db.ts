@@ -23,6 +23,11 @@ export interface ModelResponse {
   model: string;
   provider: string;
   content: string;
+  /**
+   * CoTモードなどで使用する思考プロセス（オプション）
+   * 型定義に追加することで as any キャストを排除
+   */
+  thought?: string;
 }
 
 /**
@@ -48,6 +53,12 @@ export interface ModelSettings {
   maxTokens: number;
   /** このモデルを並行推論で使用するか否か */
   enabled: boolean;
+  /**
+   * エージェント機能で使用する役割または専門分野。
+   * (例: "プログラマー", "批評家", "アナリスト")
+   * @since AgentUpdate
+   */
+  role?: string;
 }
 
 /**
@@ -110,8 +121,6 @@ class Database {
           // 会話IDでの検索を高速化するためのインデックス
           messagesStore.createIndex("conversationId", "conversationId", { unique: false });
         }
-
-        // (旧バージョンの "apiKeys" ストアは削除されました)
 
         // 推論モデル設定ストア
         if (!db.objectStoreNames.contains("modelSettings")) {
@@ -291,8 +300,8 @@ class Database {
   }
 
   /**
-   * 新しいメッセージをDBに追加します。
-   * @param {Message} message - 追加するメッセージオブジェクト
+   * 新しいメッセージをDBに追加（またはIDが重複する場合は更新）します。
+   * @param {Message} message - 追加/更新するメッセージオブジェクト
    * @returns {Promise<void>}
    */
   async addMessage(message: Message): Promise<void> {
@@ -300,7 +309,9 @@ class Database {
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction(["messages"], "readwrite");
       const store = transaction.objectStore("messages");
-      const request = store.add(message);
+      // add() ではなく put() を使うことで、IDが重複した場合に上書き（更新）される
+      // これにより、ストリーミング完了時のDB保存が簡潔になる
+      const request = store.put(message);
 
       request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
@@ -390,11 +401,9 @@ class Database {
       const store = transaction.objectStore("messages");
       const index = store.index("conversationId");
 
-      let addMessagesPromise: Promise<void> | null = null;
-
       // 1. 古いメッセージを全削除
-      const request = index.openCursor(IDBKeyRange.only(conversationId));
-      request.onsuccess = (event) => {
+      const deleteRequest = index.openCursor(IDBKeyRange.only(conversationId));
+      deleteRequest.onsuccess = (event) => {
         const cursor = (event.target as IDBRequest).result;
         if (cursor) {
           store.delete(cursor.primaryKey);
@@ -403,22 +412,18 @@ class Database {
           // 2. 削除完了後、新しいメッセージを追加
           try {
             for (const msg of newMessages) {
-              store.add({ ...msg, conversationId }); // 会話IDを強制
+              // addMessage (put) を使う
+              store.put({ ...msg, conversationId }); // 会話IDを強制
             }
-            addMessagesPromise = Promise.resolve();
           } catch (e) {
-            addMessagesPromise = Promise.reject(e);
+            reject(e);
           }
         }
       };
 
-      transaction.oncomplete = () => {
-        if (addMessagesPromise) {
-          addMessagesPromise.then(resolve).catch(reject);
-        } else {
-          resolve(); // メッセージが0件だった場合など
-        }
-      };
+      deleteRequest.onerror = () => reject(deleteRequest.error);
+
+      transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error);
     });
   }

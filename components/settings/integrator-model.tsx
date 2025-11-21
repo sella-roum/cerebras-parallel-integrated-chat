@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -47,18 +47,11 @@ export function IntegratorModel() {
     }
   };
 
-  // いずれかの設定値が変更されたら、自動でDBに保存
-  useEffect(() => {
-    if (!hasLoaded || !modelName) {
-      return;
-    }
-    saveSettings();
-  }, [hasLoaded, modelName, temperature, maxTokens]);
-
   /**
    * 現在のstateを `appSettings.integratorModel` としてDBに保存します。
+   * useCallbackで依存関係を固定
    */
-  const saveSettings = async () => {
+  const saveSettings = useCallback(async () => {
     try {
       const currentSettings = await db.getAppSettings();
       await db.saveAppSettings({
@@ -74,7 +67,15 @@ export function IntegratorModel() {
     } catch (error) {
       console.error("Failed to save integrator settings:", error);
     }
-  };
+  }, [modelName, temperature, maxTokens]);
+
+  // いずれかの設定値が変更されたら、自動でDBに保存
+  useEffect(() => {
+    if (!hasLoaded || !modelName) {
+      return;
+    }
+    saveSettings();
+  }, [hasLoaded, modelName, saveSettings]);
 
   return (
     <Card>

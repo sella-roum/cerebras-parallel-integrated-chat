@@ -202,7 +202,6 @@ export default function Home() {
         onOpenSidebar={toggleSidebar}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onUpdateConversationTitle={handleUpdateConversationTitle}
-        onNewConversation={handleNewConversation}
         onUpdateConversationSystemPrompt={handleUpdateConversationSystemPrompt}
       />
 

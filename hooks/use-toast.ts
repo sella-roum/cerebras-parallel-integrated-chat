@@ -19,16 +19,6 @@ type ToasterToast = ToastProps & {
   action?: ToastActionElement;
 };
 
-/**
- * `reducer` で使用されるアクションの型定義
- */
-const actionTypes = {
-  ADD_TOAST: "ADD_TOAST",
-  UPDATE_TOAST: "UPDATE_TOAST",
-  DISMISS_TOAST: "DISMISS_TOAST",
-  REMOVE_TOAST: "REMOVE_TOAST",
-} as const;
-
 /** グローバルなトーストID生成用のカウンター */
 let count = 0;
 
@@ -41,26 +31,25 @@ function genId(): string {
   return count.toString();
 }
 
-type ActionType = typeof actionTypes;
-
 /**
  * `reducer` にディスパッチされるアクションの型
+ * actionTypes 定数を使わず、文字列リテラル型を直接使用して警告を回避
  */
 type Action =
   | {
-      type: ActionType["ADD_TOAST"];
+      type: "ADD_TOAST";
       toast: ToasterToast;
     }
   | {
-      type: ActionType["UPDATE_TOAST"];
+      type: "UPDATE_TOAST";
       toast: Partial<ToasterToast>;
     }
   | {
-      type: ActionType["DISMISS_TOAST"];
+      type: "DISMISS_TOAST";
       toastId?: ToasterToast["id"];
     }
   | {
-      type: ActionType["REMOVE_TOAST"];
+      type: "REMOVE_TOAST";
       toastId?: ToasterToast["id"];
     };
 
