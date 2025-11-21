@@ -4,6 +4,16 @@ import type { CoreMessage } from "ai";
 import type { ModelSettings } from "../../db";
 
 /**
+ * JSON文字列からMarkdownのコードブロック記号を除去するヘルパー関数
+ */
+function cleanJsonOutput(text: string): string {
+  return text
+    .replace(/```json\n?/g, "")
+    .replace(/```/g, "")
+    .trim();
+}
+
+/**
  * [ステップ] 計画：マネージャーモード用のサブタスク計画
  * ユーザーの最新の要求を分析し、それを達成するためのサブタスクのリストを生成します。
  * 結果は `context.subTasks` に格納されます。
@@ -29,27 +39,29 @@ export const planSubtasks: ExecutionStepFunction = async (context) => {
   ];
 
   // 計画ステップはストリーミングしない
-  const planResponse = await executeIntegration(apiKeyManager, plannerPrompt, {
+  const planRaw = await executeIntegration(apiKeyManager, plannerPrompt, {
     ...appSettings.integratorModel,
     id: "planner",
     enabled: true,
   } as ModelSettings);
 
   try {
-    // ★ 修正: JSONパースの堅牢化
-    const parsed = JSON.parse(planResponse);
+    // Markdownコードブロックを除去
+    const planJson = cleanJsonOutput(planRaw);
+
+    const parsed = JSON.parse(planJson);
     if (Array.isArray(parsed)) {
       // 文字列以外が混ざっていても一応 toString でそろえる
       context.subTasks = parsed.map((v) => String(v));
     } else {
       // 想定外の構造はフォールバック
-      context.subTasks = [planResponse];
+      context.subTasks = [planJson];
     }
     console.log("[Agent Step: Plan]", context.subTasks);
   } catch {
-    console.error("[Agent Step: Plan] 計画のJSONパースに失敗しました。応答を単一タスクとして扱います。", planResponse);
+    console.error("[Agent Step: Plan] 計画のJSONパースに失敗しました。応答を単一タスクとして扱います。", planRaw);
     // パース失敗時は、応答テキスト全体を単一のタスクとして扱うフォールバック
-    context.subTasks = [planResponse];
+    context.subTasks = [planRaw];
   }
   return context;
 };
@@ -79,26 +91,28 @@ export const generateHypotheses: ExecutionStepFunction = async (context) => {
   ];
 
   // 仮説ステップもストリーミングしない
-  const hypoResponse = await executeIntegration(apiKeyManager, hypoPrompt, {
+  const hypoRaw = await executeIntegration(apiKeyManager, hypoPrompt, {
     ...appSettings.integratorModel,
     id: "hypothesis",
     enabled: true,
   } as ModelSettings);
 
   try {
-    // ★ 修正: JSONパースの堅牢化 (planSubtasksと同様)
-    const parsed = JSON.parse(hypoResponse);
+    // Markdownコードブロックを除去
+    const hypoJson = cleanJsonOutput(hypoRaw);
+
+    const parsed = JSON.parse(hypoJson);
     if (Array.isArray(parsed)) {
       context.subTasks = parsed.map((v) => String(v));
     } else {
-      context.subTasks = [hypoResponse];
+      context.subTasks = [hypoJson];
     }
     console.log("[Agent Step: Hypothesis]", context.subTasks);
     // 仮説モードであることを示すフラグを立てる（統合ステップが参照するため）
     context.isHypothesis = true;
   } catch {
-    console.error("[Agent Step: Hypothesis] 仮説のJSONパースに失敗しました。", hypoResponse);
-    context.subTasks = [hypoResponse];
+    console.error("[Agent Step: Hypothesis] 仮説のJSONパースに失敗しました。", hypoRaw);
+    context.subTasks = [hypoRaw];
     context.isHypothesis = true;
   }
   return context;

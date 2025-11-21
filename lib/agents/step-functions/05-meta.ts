@@ -3,6 +3,16 @@ import type { ExecutionStepFunction } from "../types";
 import type { CoreMessage } from "ai";
 
 /**
+ * JSON文字列からMarkdownのコードブロック記号を除去するヘルパー関数
+ */
+function cleanJsonOutput(text: string): string {
+  return text
+    .replace(/```json\n?/g, "")
+    .replace(/```/g, "")
+    .trim();
+}
+
+/**
  * [ステップ] 感情・トーン分析と標準実行を並列に行う (メタ分析)
  * 特定の役割設定に関わらず、
  * 1. モデルリストの先頭のモデルを「分析役」として実行
@@ -37,6 +47,7 @@ export const executeEmotionAnalysis: ExecutionStepFunction = async (context) => 
   // 3. 並列実行の開始
 
   // Task A: 分析の実行 (1つのモデル)
+  // executeParallelは内部でAPIを呼ぶだけなので、この結果もJSONパースが必要
   const analysisPromise = executeParallel(apiKeyManager, [analyzerModel], analysisPrompt);
 
   // Task B: 通常の回答生成 (全モデル)
@@ -47,8 +58,25 @@ export const executeEmotionAnalysis: ExecutionStepFunction = async (context) => 
   const [analysisResponses, standardResponses] = await Promise.all([analysisPromise, standardPromise]);
 
   // 4. 結果の格納
+
+  // 分析結果のJSONクリーニングと検証
+  let cleanAnalysisResponses = analysisResponses;
+  if (analysisResponses.length > 0) {
+    // 分析結果がJSONパース可能か試行し、ダメならクリーニングする
+    const rawContent = analysisResponses[0].content;
+    const cleanContent = cleanJsonOutput(rawContent);
+
+    // 元のオブジェクトは変更せず、新しいコンテントで更新
+    cleanAnalysisResponses = [
+      {
+        ...analysisResponses[0],
+        content: cleanContent,
+      },
+    ];
+  }
+
   // critiques スロットを流用してメタ情報（分析結果）を格納
-  context.critiques = analysisResponses;
+  context.critiques = cleanAnalysisResponses;
 
   // 通常の並列実行の結果を格納
   context.parallelResponses = standardResponses;

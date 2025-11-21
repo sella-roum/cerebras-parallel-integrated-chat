@@ -97,9 +97,23 @@ export function ChatView({
    * 編集モードをキャンセルします。
    */
   useEffect(() => {
-    activeConversationIdRef.current = selectedConversationData?.id || null;
+    const currentId = selectedConversationData?.id || null;
+    const previousId = activeConversationIdRef.current;
+
+    // IDをRefに更新
+    activeConversationIdRef.current = currentId;
 
     if (selectedConversationData) {
+      // IDが同じ場合（タイトル更新などのメタデータ変更時）は、メッセージの再読み込みをスキップする
+      // これにより、メッセージ送信直後のタイトル更新でUIがリセットされるのを防ぐ
+      if (currentId === previousId) {
+        // システムプロンプトのみ同期
+        if (selectedConversationData.systemPrompt !== currentSystemPrompt) {
+          setCurrentSystemPrompt(selectedConversationData.systemPrompt || "");
+        }
+        return;
+      }
+
       setIsLoading(false); // 会話切り替え時はローディング解除
       setEditingMessageId(null); // 編集モードをキャンセル
       loadMessages(selectedConversationData.id);
@@ -108,7 +122,7 @@ export function ChatView({
       setMessages([]);
       setCurrentSystemPrompt("");
     }
-  }, [selectedConversationData, loadMessages]);
+  }, [selectedConversationData, loadMessages, currentSystemPrompt]);
 
   /**
    * メッセージリストやストリーミングステータスが更新されたら、
@@ -249,7 +263,17 @@ export function ChatView({
       timestamp: Date.now(),
       conversationId,
     };
-    await db.addMessage(userMessage);
+
+    try {
+      await db.addMessage(userMessage);
+    } catch (error) {
+      console.error("Failed to save user message:", error);
+      toast({ title: "メッセージの保存に失敗しました", variant: "destructive" });
+      // 楽観的UI更新をロールバック
+      setInput(userInput);
+      setStreamingStatus(null);
+      return;
+    }
 
     // アシスタントメッセージの「ガワ」を作成
     const assistantMessageId = `msg_asst_${Date.now()}`;
@@ -299,7 +323,14 @@ export function ChatView({
     setStreamingStatus("再生成中...");
 
     // --- DB同期 (ステップ1) ---
-    await db.deleteMessagesAfter(messageId, conversationId);
+    try {
+      await db.deleteMessagesAfter(messageId, conversationId);
+    } catch (error) {
+      console.error("Failed to delete messages for regenerate:", error);
+      toast({ title: "履歴の更新に失敗しました", variant: "destructive" });
+      setStreamingStatus(null);
+      return;
+    }
 
     const historyToResend = messages.slice(0, messageIndex);
 
@@ -332,6 +363,8 @@ export function ChatView({
 
     setStreamingStatus("編集して再生成中...");
     const originalMessageId = editingMessageId;
+
+    // UIの編集モードを解除（楽観的更新）
     setEditingMessageId(null);
     setEditingContent("");
 
@@ -339,11 +372,20 @@ export function ChatView({
     const nextMessage = messages[messageIndex + 1];
 
     // --- DB同期 (ステップ1) ---
-    if (nextMessage) {
-      await db.deleteMessagesAfter(nextMessage.id, conversationId);
+    try {
+      if (nextMessage) {
+        await db.deleteMessagesAfter(nextMessage.id, conversationId);
+      }
+      await db.updateMessageContent(originalMessageId, newContent);
+    } catch (error) {
+      console.error("Failed to update message history:", error);
+      toast({ title: "メッセージの更新に失敗しました", variant: "destructive" });
+      setStreamingStatus(null);
+      // エラー時は編集モードに戻すことも検討できるが、ここでは最低限の状態復帰のみ行う
+      return;
     }
-    await db.updateMessageContent(originalMessageId, newContent);
 
+    // DBから最新の履歴を再取得して整合性を担保
     const historyToResend = await db.getMessages(conversationId);
 
     const assistantMessageId = `msg_asst_${Date.now()}`;
@@ -541,8 +583,9 @@ export function ChatView({
                               </CollapsibleTrigger>
                               <CollapsibleContent className="mt-3 space-y-3">
                                 {message.modelResponses.map((response, index) => (
-                                  <div key={index} className="border border-border rounded-md p-3 bg-muted/30">
-                                    <div className="flex items-center justify-between mb-2">
+                                  <div key={index} className="border border-border rounded-md overflow-hidden">
+                                    {/* モデルヘッダー */}
+                                    <div className="bg-muted/50 px-3 py-2 border-b border-border flex items-center justify-between">
                                       <span className="text-xs font-semibold text-muted-foreground">
                                         {response.model}
                                       </span>
@@ -555,14 +598,30 @@ export function ChatView({
                                         <Copy className="h-3 w-3" />
                                       </Button>
                                     </div>
-                                    <MarkdownRenderer
-                                      content={
-                                        response.thought
-                                          ? `[思考]\n${response.thought}\n\n[最終回答]\n${response.content}`
-                                          : response.content
-                                      }
-                                      className="text-xs"
-                                    />
+
+                                    <div className="p-3 bg-card space-y-3">
+                                      {/* 思考プロセスがある場合は視覚的に分離して表示 */}
+                                      {response.thought && (
+                                        <div className="text-xs bg-muted/30 p-2 rounded border border-border/50">
+                                          <div className="font-semibold text-muted-foreground mb-1 flex items-center gap-1">
+                                            <Sparkles className="w-3 h-3" /> 思考プロセス
+                                          </div>
+                                          <div className="opacity-90 text-muted-foreground whitespace-pre-wrap">
+                                            {response.thought}
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* 回答コンテンツ */}
+                                      <div>
+                                        {response.thought && (
+                                          <div className="font-semibold text-xs text-muted-foreground mb-1">
+                                            最終回答
+                                          </div>
+                                        )}
+                                        <MarkdownRenderer content={response.content} className="text-xs" />
+                                      </div>
+                                    </div>
                                   </div>
                                 ))}
                               </CollapsibleContent>

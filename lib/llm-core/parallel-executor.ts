@@ -39,6 +39,11 @@ export async function executeParallel(
 ): Promise<ModelResponse[]> {
   let lastApiError: LlmApiError | null = null;
 
+  // 実行対象のモデルがない場合は、即座にエラーを投げる（明確なガード）
+  if (modelsToRun.length === 0) {
+    throw new Error("実行対象のモデルが指定されていません。");
+  }
+
   // 1. 実行タスクの初期化
   // ParallelTask[] 型を明示することで、statusプロパティに "fulfilled" 等を代入可能にする
   const modelTasks: ParallelTask[] = modelsToRun.map((model) => {

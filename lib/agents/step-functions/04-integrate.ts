@@ -14,7 +14,8 @@ export const integrateStandard: ExecutionStepFunction = async (context) => {
   if (!appSettings.integratorModel) {
     throw new Error("統合モデルが設定されていません。");
   }
-  if (parallelResponses.length === 0) {
+  // parallelResponses が undefined または空配列の場合を考慮してチェック
+  if (!parallelResponses || parallelResponses.length === 0) {
     throw new Error("統合対象の並列応答がありません。");
   }
 

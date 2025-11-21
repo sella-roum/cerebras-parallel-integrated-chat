@@ -5,6 +5,16 @@ import type { CoreMessage } from "ai";
 import type { ModelSettings } from "../../db";
 
 /**
+ * JSON文字列からMarkdownのコードブロック記号を除去するヘルパー関数
+ */
+function cleanJsonOutput(text: string): string {
+  return text
+    .replace(/```json\n?/g, "")
+    .replace(/```/g, "")
+    .trim();
+}
+
+/**
  * [ステップ] 標準的な並列実行
  * コンテキスト内の全有効化モデルに対し、共通の履歴を渡して並列実行します。
  * @param {AgentContext} context - 現在の実行コンテキスト
@@ -67,11 +77,14 @@ export const executeExpertTeam: ExecutionStepFunction = async (context) => {
   // 3. 統合モデルによる役割リストの生成（非ストリーミング）
   let generatedRoles: string[] = [];
   try {
-    const rolesJson = await executeIntegration(apiKeyManager, roleGenPrompt, {
+    const rolesRaw = await executeIntegration(apiKeyManager, roleGenPrompt, {
       ...appSettings.integratorModel,
       id: "role_generator",
       enabled: true,
     } as ModelSettings);
+
+    // Markdownコードブロックを除去してからパース
+    const rolesJson = cleanJsonOutput(rolesRaw);
 
     // JSONパースを試みる
     const parsed = JSON.parse(rolesJson);
@@ -141,13 +154,24 @@ export const executeDeepThought: ExecutionStepFunction = async (context) => {
 
   // パースして [思考] と [最終回答] を分離
   context.parallelResponses = rawResponses.map((res) => {
-    const thoughtMatch = res.content.match(/\[思考\]([\s\S]*?)\[\/思考\]/);
-    const answerMatch = res.content.match(/\[最終回答\]([\s\S]*)/);
+    const content = res.content;
 
+    // 1. 思考部分を抽出
+    const thoughtMatch = content.match(/\[思考\]([\s\S]*?)\[\/思考\]/);
     const thought = thoughtMatch ? thoughtMatch[1].trim() : "（思考の抽出に失敗）";
 
-    // 修正: ロジックを簡素化
-    const answer = answerMatch ? answerMatch[1].trim() : res.content;
+    // 2. コンテンツから思考ブロックを除去し、残りを回答候補とする
+    // これにより [最終回答] タグの前に接続詞があっても保持される
+    let answer = content.replace(/\[思考\][\s\S]*?\[\/思考\]/, "").trim();
+
+    // 3. [最終回答] タグがあれば、タグ自体を除去（後方互換性のためタグ以降を取得するロジックから変更）
+    // 単純にタグ文字を消すことで、文章の途中切れを防ぐ
+    answer = answer.replace(/\[最終回答\]/g, "").trim();
+
+    // もし空になってしまった場合（タグ抽出失敗など）は元のcontent全体を返すフォールバック
+    if (!answer && !thoughtMatch) {
+      answer = content;
+    }
 
     return {
       ...res,
@@ -212,6 +236,10 @@ export const executeRouter: ExecutionStepFunction = async (context) => {
       id: "router",
       enabled: true,
     } as ModelSettings);
+
+    // ルーターはJSONパースしないが、Markdownブロックで囲まれると困るので念のためクリーニング
+    dynamicInstruction = cleanJsonOutput(dynamicInstruction);
+
     console.log(`[Router] 生成された指示:\n${dynamicInstruction}`);
   } catch (e) {
     console.error("[Router] 指示生成に失敗しました。", e);

@@ -106,7 +106,7 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
            */
           h1: ({ children, ...props }: ComponentPropsWithoutRef<"h1">) => {
             return (
-              <h1 className="text-2xl font-bold mt-6 mb-3" {...props}>
+              <h1 className="text-2xl font-bold mt-6 mb-3 leading-tight border-b pb-2" {...props}>
                 {children}
               </h1>
             );
@@ -116,7 +116,7 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
            */
           h2: ({ children, ...props }: ComponentPropsWithoutRef<"h2">) => {
             return (
-              <h2 className="text-xl font-bold mt-5 mb-2" {...props}>
+              <h2 className="text-xl font-bold mt-5 mb-2 leading-tight" {...props}>
                 {children}
               </h2>
             );
@@ -126,17 +126,19 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
            */
           h3: ({ children, ...props }: ComponentPropsWithoutRef<"h3">) => {
             return (
-              <h3 className="text-lg font-semibold mt-4 mb-2" {...props}>
+              <h3 className="text-lg font-semibold mt-4 mb-2 leading-tight" {...props}>
                 {children}
               </h3>
             );
           },
           /**
            * 段落 (`<p>`)
+           * whitespace-pre-wrap: LLMの改行コードを正しく表示するために必要
+           * text-base font-normal: 見出しのように太字/大文字になるのを防ぐ
            */
           p: ({ children, ...props }: ComponentPropsWithoutRef<"p">) => {
             return (
-              <p className="my-2 leading-relaxed" {...props}>
+              <p className="my-2 leading-relaxed whitespace-pre-wrap text-base font-normal" {...props}>
                 {children}
               </p>
             );
@@ -146,7 +148,10 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
            */
           blockquote: ({ children, ...props }: ComponentPropsWithoutRef<"blockquote">) => {
             return (
-              <blockquote className="border-l-4 border-muted-foreground/30 pl-4 italic my-3" {...props}>
+              <blockquote
+                className="border-l-4 border-muted-foreground/30 pl-4 italic my-3 text-muted-foreground"
+                {...props}
+              >
                 {children}
               </blockquote>
             );
